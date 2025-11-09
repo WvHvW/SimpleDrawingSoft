@@ -595,7 +595,10 @@ void Curve::Draw(ID2D1RenderTarget *pRenderTarget,
                 pSink->Release();
             }
 
-            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
+            if (m_isSelected && pDashStrokeStyle)
+                pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f, pDashStrokeStyle);
+            else
+                pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
             pPathGeometry->Release();
         }
 
@@ -626,7 +629,10 @@ void Curve::Draw(ID2D1RenderTarget *pRenderTarget,
     } else {
         // 自由曲线 - 使用多段线连接所有点
         for (size_t i = 1; i < m_points.size(); i++) {
-            pRenderTarget->DrawLine(m_points[i - 1], m_points[i], currentBrush, 2.0f);
+            if (m_isSelected && pDashStrokeStyle)
+                pRenderTarget->DrawLine(m_points[i - 1], m_points[i], currentBrush, 2.0f, pDashStrokeStyle);
+            else
+                pRenderTarget->DrawLine(m_points[i - 1], m_points[i], currentBrush, 2.0f);
         }
     }
 }
