@@ -52,6 +52,9 @@ public:
     // 绘制垂线
     std::shared_ptr<Line> CreatePerpendicularLine(std::shared_ptr<Line> line, D2D1_POINT_2F point);
 
+    // 绘制切线
+    std::vector<std::shared_ptr<Line>> CreateTangents(D2D1_POINT_2F point, std::shared_ptr<Circle> circle);
+
     ID2D1RenderTarget *GetRenderTarget() {
         return m_pRenderTarget;
     }

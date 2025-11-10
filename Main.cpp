@@ -38,6 +38,11 @@ private:
     D2D1_POINT_2F m_bezierControl1, m_bezierControl2;
     int m_bezierClickCount = 0;
 
+    // 切线绘制状态
+    bool m_isDrawingTangent = false;
+    std::shared_ptr<Circle> m_selectedCircleForTangent;
+    std::vector<std::shared_ptr<Line>> m_tempTangents;
+
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -49,6 +54,7 @@ private:
     void OnKeyDown(WPARAM wParam);
     void OnCommand(WPARAM wParam);
     void ResetDrawingState();
+    void ResetTangentState();
     float CalculateDistance(D2D1_POINT_2F startPoint, D2D1_POINT_2F endPoint);
     std::shared_ptr<Triangle> CreateEquilateralTriangle(D2D1_POINT_2F vertex1, D2D1_POINT_2F vertex2);
 
@@ -259,6 +265,27 @@ void MainWindow::OnLButtonDown(int x, int y) {
             }
         }
         break;
+
+    case DrawingMode::TANGENT: // 假设这是切线模式的枚举值
+        if (!m_isDrawingTangent) {
+            // 第一次点击：选择圆
+            if (auto selectedShape = m_graphicsEngine->SelectShape(currentPoint)) {
+                if (selectedShape->GetType() == ShapeType::CIRCLE) {
+                    m_selectedCircleForTangent = std::dynamic_pointer_cast<Circle>(selectedShape);
+                    m_isDrawingTangent = true;
+                }
+            }
+        } else {
+            // 第二次点击：确定切线方向并绘制切线
+            if (m_selectedCircleForTangent) {
+                auto tangents = m_graphicsEngine->CreateTangents(currentPoint, m_selectedCircleForTangent);
+                for (auto &tangent : tangents) {
+                    m_graphicsEngine->AddShape(tangent);
+                }
+            }
+            ResetTangentState();
+        }
+        break;
     }
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -358,6 +385,12 @@ void MainWindow::OnMouseMove(int x, int y) {
         m_tempPolyLine = std::make_shared<Line>(m_polyPoints.back(), currentPoint);
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
+
+    // 切线模式预览
+    if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && m_selectedCircleForTangent) {
+        m_tempTangents = m_graphicsEngine->CreateTangents(currentPoint, m_selectedCircleForTangent);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
 }
 
 // 辅助函数
@@ -392,6 +425,13 @@ void MainWindow::ResetDrawingState() {
     m_isDrawingCurve = false;
     m_currentCurve.reset();
     m_tempPolyLine.reset();
+    ResetTangentState();
+}
+
+void MainWindow::ResetTangentState() {
+    m_isDrawingTangent = false;
+    m_selectedCircleForTangent.reset();
+    m_tempTangents.clear();
 }
 
 void MainWindow::OnRButtonDown(int x, int y) {
@@ -413,7 +453,8 @@ void MainWindow::OnRButtonDown(int x, int y) {
     } else {
         // 其他模式的右键取消
         ResetDrawingState();
-        m_transformMode = TransformMode::NONE;
+        m_graphicsEngine->ClearSelection();
+        CancelTransform();
     }
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -489,7 +530,6 @@ void MainWindow::OnKeyDown(WPARAM wParam) {
 
 void MainWindow::StartTransform(TransformMode mode, D2D1_POINT_2F point) {
     if (!m_graphicsEngine->IsShapeSelected()) return;
-
     m_transformMode = mode;
     m_transformStartPoint = point;
     m_isTransforming = true;
@@ -629,6 +669,20 @@ void MainWindow::OnPaint() {
             }
         }
 
+        // 绘制切线预览
+        if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && !m_tempTangents.empty()) {
+            ID2D1SolidColorBrush *tempBrush = nullptr;
+            HRESULT hr = m_graphicsEngine->GetRenderTarget()->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Orange), &tempBrush);
+
+            if (SUCCEEDED(hr) && tempBrush) {
+                for (auto &tangent : m_tempTangents) {
+                    tangent->Draw(m_graphicsEngine->GetRenderTarget(), tempBrush, tempBrush, nullptr);
+                }
+                tempBrush->Release();
+            }
+        }
+
         m_graphicsEngine->EndDraw();
     }
 }
@@ -648,20 +702,20 @@ void MainWindow::OnCommand(WPARAM wParam) {
     case 32781:
         m_currentMode = DrawingMode ::PERPENDICULAR;
         break;
+    case 32783:
+        m_currentMode = DrawingMode::TANGENT;
+        break;
     case 32787:
-        if (m_graphicsEngine->IsShapeSelected()) {
-            m_transformMode = TransformMode::MOVE;
-        };
+        m_transformMode = TransformMode::MOVE;
+        m_currentMode = DrawingMode::SELECT;
         break;
     case 32788:
-        if (m_graphicsEngine->IsShapeSelected()) {
-            m_transformMode = TransformMode::ROTATE;
-        }
+        m_transformMode = TransformMode::ROTATE;
+        m_currentMode = DrawingMode::SELECT;
         break;
     case 32789:
-        if (m_graphicsEngine->IsShapeSelected()) {
-            m_transformMode = TransformMode::SCALE;
-        }
+        m_transformMode = TransformMode::SCALE;
+        m_currentMode = DrawingMode::SELECT;
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }

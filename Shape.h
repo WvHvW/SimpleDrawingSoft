@@ -10,7 +10,7 @@
 class Shape {
 public:
     Shape(ShapeType type) :
-        m_type(type), m_isSelected(false), m_transform(D2D1::Matrix3x2F::Identity()) {
+        m_type(type), m_isSelected(false) {
     }
     virtual ~Shape() = default;
 
@@ -41,7 +41,6 @@ public:
 protected:
     ShapeType m_type;
     bool m_isSelected;
-    D2D1_MATRIX_3X2_F m_transform;
 };
 
 // 直线类
@@ -140,24 +139,32 @@ public:
     void Scale(float scale) override;
 
     D2D1_POINT_2F GetCenter() const override {
-        return D2D1::Point2F(
-            (m_start.x + m_end.x) / 2,
-            (m_start.y + m_end.y) / 2);
+        float centerX = (m_points[0].x + m_points[1].x + m_points[2].x + m_points[3].x) / 4;
+        float centerY = (m_points[0].y + m_points[1].y + m_points[2].y + m_points[3].y) / 4;
+        return D2D1::Point2F(centerX, centerY);
     }
 
     D2D1_RECT_F GetBounds() const override {
-        return D2D1::RectF(
-            min(m_start.x, m_end.x),
-            min(m_start.y, m_end.y),
-            max(m_start.x, m_end.x),
-            max(m_start.y, m_end.y));
+        float minX = m_points[0].x;
+        float minY = m_points[0].y;
+        float maxX = m_points[0].x;
+        float maxY = m_points[0].y;
+
+        for (int i = 1; i < 4; i++) {
+            if (m_points[i].x < minX) minX = m_points[i].x;
+            if (m_points[i].y < minY) minY = m_points[i].y;
+            if (m_points[i].x > maxX) maxX = m_points[i].x;
+            if (m_points[i].y > maxY) maxY = m_points[i].y;
+        }
+
+        return D2D1::RectF(minX, minY, maxX, maxY);
     }
 
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
 
 private:
-    D2D1_POINT_2F m_start, m_end;
+    D2D1_POINT_2F m_points[4]; // 存储四个顶点
 };
 
 // 三角形类

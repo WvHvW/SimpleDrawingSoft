@@ -204,3 +204,52 @@ std::shared_ptr<Line> GraphicsEngine::CreatePerpendicularLine(std::shared_ptr<Li
 
     return std::make_shared<Line>(p1, p2);
 }
+
+std::vector<std::shared_ptr<Line>> GraphicsEngine::CreateTangents(D2D1_POINT_2F point, std::shared_ptr<Circle> circle) {
+    std::vector<std::shared_ptr<Line>> tangents;
+
+    if (!circle) return tangents;
+
+    D2D1_POINT_2F center = circle->GetCenter();
+    float radius = circle->GetRadius();
+
+    // 计算点到圆心的距离
+    float dx = point.x - center.x;
+    float dy = point.y - center.y;
+    float distance = sqrtf(dx * dx + dy * dy);
+
+    // 如果点在圆内，没有切线
+    if (distance < radius) {
+        return tangents;
+    }
+
+    // 计算切点
+    // 使用相似三角形原理计算切点
+    float a = radius * radius / distance;
+    float h = sqrtf(radius * radius - a * a);
+
+    // 单位向量从圆心指向点
+    float ux = dx / distance;
+    float uy = dy / distance;
+
+    // 垂直向量
+    float vx = -uy;
+    float vy = ux;
+
+    // 计算两个切点
+    D2D1_POINT_2F tangent1, tangent2;
+
+    // 第一个切点
+    tangent1.x = center.x + a * ux + h * vx;
+    tangent1.y = center.y + a * uy + h * vy;
+
+    // 第二个切点
+    tangent2.x = center.x + a * ux - h * vx;
+    tangent2.y = center.y + a * uy - h * vy;
+
+    // 创建切线
+    tangents.push_back(std::make_shared<Line>(point, tangent1));
+    tangents.push_back(std::make_shared<Line>(point, tangent2));
+
+    return tangents;
+}

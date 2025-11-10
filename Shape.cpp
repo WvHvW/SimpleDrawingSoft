@@ -152,7 +152,12 @@ void Circle::Deserialize(const std::string &data) {
 
 // Rectangle 实现
 Rectangle::Rectangle(D2D1_POINT_2F start, D2D1_POINT_2F end) :
-    Shape(ShapeType::RECTANGLE), m_start(start), m_end(end) {
+    Shape(ShapeType::RECTANGLE) {
+    // 初始化四个顶点
+    m_points[0] = start;                         // 左上角
+    m_points[1] = D2D1::Point2F(end.x, start.y); // 右上角
+    m_points[2] = end;                           // 右下角
+    m_points[3] = D2D1::Point2F(start.x, end.y); // 左下角
 }
 
 void Rectangle::Draw(ID2D1RenderTarget *pRenderTarget,
@@ -162,52 +167,99 @@ void Rectangle::Draw(ID2D1RenderTarget *pRenderTarget,
     if (!pRenderTarget || !pNormalBrush || !pSelectedBrush) return;
 
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pNormalBrush;
-    D2D1_RECT_F rect = D2D1::RectF(m_start.x, m_start.y, m_end.x, m_end.y);
-    if (m_isSelected && pDashStrokeStyle)
-        pRenderTarget->DrawRectangle(rect, currentBrush, 2.0f, pDashStrokeStyle);
-    else
-        pRenderTarget->DrawRectangle(rect, currentBrush, 2.0f);
+
+    // 创建矩形路径
+    ID2D1PathGeometry *pPathGeometry = nullptr;
+    ID2D1Factory *pFactory = nullptr;
+    pRenderTarget->GetFactory(&pFactory);
+
+    if (SUCCEEDED(pFactory->CreatePathGeometry(&pPathGeometry))) {
+        ID2D1GeometrySink *pSink = nullptr;
+        if (SUCCEEDED(pPathGeometry->Open(&pSink))) {
+            pSink->BeginFigure(m_points[0], D2D1_FIGURE_BEGIN_FILLED);
+            for (int i = 1; i < 4; i++) {
+                pSink->AddLine(m_points[i]);
+            }
+            pSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            pSink->Close();
+            pSink->Release();
+        }
+        if (m_isSelected && pDashStrokeStyle)
+            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f, pDashStrokeStyle);
+        else
+            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
+        pPathGeometry->Release();
+    }
+
+    if (pFactory) pFactory->Release();
 }
 
 bool Rectangle::HitTest(D2D1_POINT_2F point) {
-    float left = min(m_start.x, m_end.x);
-    float right = max(m_start.x, m_end.x);
-    float top = min(m_start.y, m_end.y);
-    float bottom = max(m_start.y, m_end.y);
-
-    return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom;
+    // 使用射线法检测点是否在多边形内
+    int crossings = 0;
+    for (int i = 0; i < 4; i++) {
+        int j = (i + 1) % 4;
+        if (((m_points[i].y <= point.y) && (m_points[j].y > point.y)) || ((m_points[j].y <= point.y) && (m_points[i].y > point.y))) {
+            float vt = (point.y - m_points[i].y) / (m_points[j].y - m_points[i].y);
+            if (point.x < m_points[i].x + vt * (m_points[j].x - m_points[i].x)) {
+                crossings++;
+            }
+        }
+    }
+    return (crossings % 2) == 1;
 }
 
 void Rectangle::Move(float dx, float dy) {
-    m_start.x += dx;
-    m_start.y += dy;
-    m_end.x += dx;
-    m_end.y += dy;
+    for (int i = 0; i < 4; i++) {
+        m_points[i].x += dx;
+        m_points[i].y += dy;
+    }
 }
 
 void Rectangle::Rotate(float angle) {
-    // 实现矩形旋转
-    // 暂时留空，可以后续实现
+    D2D1_POINT_2F center = GetCenter();
+    float s = sinf(angle);
+    float c = cosf(angle);
+
+    for (int i = 0; i < 4; i++) {
+        // 将顶点平移到原点（相对于中心点）
+        float x = m_points[i].x - center.x;
+        float y = m_points[i].y - center.y;
+
+        // 应用旋转
+        float newX = x * c - y * s;
+        float newY = x * s + y * c;
+
+        // 平移回原位置
+        m_points[i].x = newX + center.x;
+        m_points[i].y = newY + center.y;
+    }
 }
 
 void Rectangle::Scale(float scale) {
-    D2D1_POINT_2F center = {(m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2};
-    m_start.x = center.x + (m_start.x - center.x) * scale;
-    m_start.y = center.y + (m_start.y - center.y) * scale;
-    m_end.x = center.x + (m_end.x - center.x) * scale;
-    m_end.y = center.y + (m_end.y - center.y) * scale;
+    D2D1_POINT_2F center = GetCenter();
+    for (int i = 0; i < 4; i++) {
+        m_points[i].x = center.x + (m_points[i].x - center.x) * scale;
+        m_points[i].y = center.y + (m_points[i].y - center.y) * scale;
+    }
 }
 
 std::string Rectangle::Serialize() {
     std::ostringstream oss;
-    oss << "Rectangle " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
+    oss << "Rectangle ";
+    for (int i = 0; i < 4; i++) {
+        oss << m_points[i].x << " " << m_points[i].y << " ";
+    }
     return oss.str();
 }
 
 void Rectangle::Deserialize(const std::string &data) {
     std::istringstream iss(data);
     std::string type;
-    iss >> type >> m_start.x >> m_start.y >> m_end.x >> m_end.y;
+    iss >> type;
+    for (int i = 0; i < 4; i++) {
+        iss >> m_points[i].x >> m_points[i].y;
+    }
 }
 
 // Triangle 实现
