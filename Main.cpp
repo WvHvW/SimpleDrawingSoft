@@ -43,6 +43,11 @@ private:
     std::shared_ptr<Circle> m_selectedCircleForTangent;
     std::vector<std::shared_ptr<Line>> m_tempTangents;
 
+    // 圆心显示状态
+    bool m_showingCenter = false;
+    D2D1_POINT_2F m_centerPoint;
+    std::shared_ptr<Circle> m_selectedCircle;
+
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -55,6 +60,7 @@ private:
     void OnCommand(WPARAM wParam);
     void ResetDrawingState();
     void ResetTangentState();
+    void ResetCenterState();
     float CalculateDistance(D2D1_POINT_2F startPoint, D2D1_POINT_2F endPoint);
     std::shared_ptr<Triangle> CreateEquilateralTriangle(D2D1_POINT_2F vertex1, D2D1_POINT_2F vertex2);
 
@@ -286,6 +292,27 @@ void MainWindow::OnLButtonDown(int x, int y) {
             ResetTangentState();
         }
         break;
+
+    case DrawingMode::CENTER:
+        // 选择圆并显示圆心
+        if (auto selectedShape = m_graphicsEngine->SelectShape(currentPoint)) {
+            if (selectedShape->GetType() == ShapeType::CIRCLE) {
+                m_selectedCircle = std::dynamic_pointer_cast<Circle>(selectedShape);
+                if (m_selectedCircle) {
+                    m_centerPoint = m_selectedCircle->GetCenter();
+                    m_showingCenter = true;
+                }
+            } else {
+                // 如果选择的不是圆，清除圆心显示
+                m_showingCenter = false;
+                m_selectedCircle.reset();
+            }
+        } else {
+            // 点击空白处，清除圆心显示
+            m_showingCenter = false;
+            m_selectedCircle.reset();
+        }
+        break;
     }
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -391,6 +418,25 @@ void MainWindow::OnMouseMove(int x, int y) {
         m_tempTangents = m_graphicsEngine->CreateTangents(currentPoint, m_selectedCircleForTangent);
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
+
+    // CENTER模式光标反馈
+    if (m_currentMode == DrawingMode::CENTER) {
+        bool isOverCircle = false;
+
+        // 检查鼠标是否在圆上
+        for (const auto &shape : m_graphicsEngine->GetShapes()) {
+            if (shape->GetType() == ShapeType::CIRCLE && shape->HitTest(currentPoint)) {
+                isOverCircle = true;
+                break;
+            }
+        }
+
+        if (isOverCircle) {
+            SetCursor(LoadCursor(nullptr, IDC_CROSS)); // 十字光标
+        } else {
+            SetCursor(LoadCursor(nullptr, IDC_ARROW)); // 默认箭头光标
+        }
+    }
 }
 
 // 辅助函数
@@ -426,12 +472,18 @@ void MainWindow::ResetDrawingState() {
     m_currentCurve.reset();
     m_tempPolyLine.reset();
     ResetTangentState();
+    ResetCenterState();
 }
 
 void MainWindow::ResetTangentState() {
     m_isDrawingTangent = false;
     m_selectedCircleForTangent.reset();
     m_tempTangents.clear();
+}
+
+void MainWindow::ResetCenterState() {
+    m_showingCenter = false;
+    m_selectedCircle.reset();
 }
 
 void MainWindow::OnRButtonDown(int x, int y) {
@@ -671,15 +723,165 @@ void MainWindow::OnPaint() {
 
         // 绘制切线预览
         if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && !m_tempTangents.empty()) {
+            ID2D1RenderTarget *pRenderTarget = m_graphicsEngine->GetRenderTarget();
             ID2D1SolidColorBrush *tempBrush = nullptr;
-            HRESULT hr = m_graphicsEngine->GetRenderTarget()->CreateSolidColorBrush(
+            HRESULT hr = pRenderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::Orange), &tempBrush);
 
             if (SUCCEEDED(hr) && tempBrush) {
                 for (auto &tangent : m_tempTangents) {
-                    tangent->Draw(m_graphicsEngine->GetRenderTarget(), tempBrush, tempBrush, nullptr);
+                    // 绘制切线
+                    tangent->Draw(pRenderTarget, tempBrush, tempBrush, nullptr);
+
+                    // 获取切线的起点和终点（终点是切点）
+                    D2D1_POINT_2F startPoint = tangent->GetStart();
+                    D2D1_POINT_2F endPoint = tangent->GetEnd();
+
+                    // 绘制切点标记
+                    D2D1_ELLIPSE tangentPoint = D2D1::Ellipse(endPoint, 4.0f, 4.0f);
+                    pRenderTarget->FillEllipse(tangentPoint, tempBrush);
+
+                    // 绘制切点坐标文本背景
+                    ID2D1SolidColorBrush *textBgBrush = nullptr;
+                    pRenderTarget->CreateSolidColorBrush(
+                        D2D1::ColorF(D2D1::ColorF::White, 0.8f), &textBgBrush);
+
+                    if (textBgBrush) {
+                        // 格式化坐标文本
+                        WCHAR coordText[100];
+                        swprintf_s(coordText, L"切点: (%.1f, %.1f)", endPoint.x, endPoint.y);
+
+                        // 计算文本位置（确保不会超出屏幕）
+                        float textX = endPoint.x + 10.0f;
+                        float textY = endPoint.y - 15.0f;
+
+                        // 如果切点在屏幕右侧，调整文本位置到左侧
+                        RECT clientRect;
+                        GetClientRect(m_hwnd, &clientRect);
+                        if (textX + 120.0f > clientRect.right) {
+                            textX = endPoint.x - 130.0f;
+                        }
+
+                        // 如果切点在屏幕底部，调整文本位置到上方
+                        if (textY < clientRect.top + 10) {
+                            textY = endPoint.y + 10.0f;
+                        }
+
+                        D2D1_RECT_F textRect = D2D1::RectF(
+                            textX, textY, textX + 120.0f, textY + 20.0f);
+
+                        // 绘制文本背景
+                        pRenderTarget->FillRectangle(textRect, textBgBrush);
+
+                        // 绘制坐标文本边框
+                        pRenderTarget->DrawRectangle(textRect, tempBrush, 1.0f);
+
+                        textBgBrush->Release();
+
+                        // 使用GDI绘制文本（避免DirectWrite依赖）
+                        HDC hdc = GetDC(m_hwnd);
+                        SetTextColor(hdc, RGB(255, 165, 0)); // 橙色文本
+                        SetBkColor(hdc, RGB(255, 255, 255)); // 白色背景
+
+                        // 转换坐标到屏幕坐标
+                        POINT screenPoint = {
+                            static_cast<LONG>(textX + 5),
+                            static_cast<LONG>(textY + 2)};
+
+                        // 绘制文本
+                        TextOutW(hdc, screenPoint.x, screenPoint.y, coordText, wcslen(coordText));
+                        ReleaseDC(m_hwnd, hdc);
+                    }
                 }
                 tempBrush->Release();
+            }
+        }
+        // 绘制圆心标记和坐标
+        if (m_currentMode == DrawingMode::CENTER && m_showingCenter && m_selectedCircle) {
+            ID2D1RenderTarget *pRenderTarget = m_graphicsEngine->GetRenderTarget();
+
+            // 创建红色画笔用于绘制圆心标记
+            ID2D1SolidColorBrush *centerBrush = nullptr;
+            HRESULT hr = pRenderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Red), &centerBrush);
+
+            if (SUCCEEDED(hr) && centerBrush) {
+                // 绘制圆心十字标记
+                float crossSize = 8.0f;
+                pRenderTarget->DrawLine(
+                    D2D1::Point2F(m_centerPoint.x - crossSize, m_centerPoint.y),
+                    D2D1::Point2F(m_centerPoint.x + crossSize, m_centerPoint.y),
+                    centerBrush, 2.0f);
+
+                pRenderTarget->DrawLine(
+                    D2D1::Point2F(m_centerPoint.x, m_centerPoint.y - crossSize),
+                    D2D1::Point2F(m_centerPoint.x, m_centerPoint.y + crossSize),
+                    centerBrush, 2.0f);
+
+                // 绘制圆心点
+                D2D1_ELLIPSE centerDot = D2D1::Ellipse(m_centerPoint, 3.0f, 3.0f);
+                pRenderTarget->FillEllipse(centerDot, centerBrush);
+
+                // 创建文本格式和画笔
+                IDWriteTextFormat *pTextFormat = nullptr;
+                IDWriteFactory *pDWriteFactory = nullptr;
+                DWriteCreateFactory(
+                    DWRITE_FACTORY_TYPE_SHARED,
+                    __uuidof(IDWriteFactory),
+                    reinterpret_cast<IUnknown **>(&pDWriteFactory));
+
+                if (pDWriteFactory) {
+                    pDWriteFactory->CreateTextFormat(
+                        L"Arial",
+                        NULL,
+                        DWRITE_FONT_WEIGHT_NORMAL,
+                        DWRITE_FONT_STYLE_NORMAL,
+                        DWRITE_FONT_STRETCH_NORMAL,
+                        12.0f,
+                        L"en-us",
+                        &pTextFormat);
+                }
+
+                if (pTextFormat) {
+                    // 格式化坐标文本
+                    WCHAR coordText[100];
+                    swprintf_s(coordText, L"圆心: (%.1f, %.1f)", m_centerPoint.x, m_centerPoint.y);
+
+                    // 绘制坐标文本背景
+                    ID2D1SolidColorBrush *textBgBrush = nullptr;
+                    pRenderTarget->CreateSolidColorBrush(
+                        D2D1::ColorF(D2D1::ColorF::White, 0.7f), &textBgBrush);
+
+                    if (textBgBrush) {
+                        D2D1_RECT_F textRect = D2D1::RectF(
+                            m_centerPoint.x + 10.0f,
+                            m_centerPoint.y - 20.0f,
+                            m_centerPoint.x + 150.0f,
+                            m_centerPoint.y);
+
+                        pRenderTarget->FillRectangle(textRect, textBgBrush);
+                        textBgBrush->Release();
+                    }
+
+                    // 绘制坐标文本
+                    D2D1_RECT_F textRect = D2D1::RectF(
+                        m_centerPoint.x + 10.0f,
+                        m_centerPoint.y - 20.0f,
+                        m_centerPoint.x + 150.0f,
+                        m_centerPoint.y);
+
+                    pRenderTarget->DrawText(
+                        coordText,
+                        wcslen(coordText),
+                        pTextFormat,
+                        textRect,
+                        centerBrush);
+
+                    pTextFormat->Release();
+                }
+
+                if (pDWriteFactory) pDWriteFactory->Release();
+                centerBrush->Release();
             }
         }
 
@@ -701,6 +903,9 @@ void MainWindow::OnCommand(WPARAM wParam) {
     case 32778: m_currentMode = DrawingMode::CURVE; break;
     case 32781:
         m_currentMode = DrawingMode ::PERPENDICULAR;
+        break;
+    case 32782:
+        m_currentMode = DrawingMode::CENTER;
         break;
     case 32783:
         m_currentMode = DrawingMode::TANGENT;
