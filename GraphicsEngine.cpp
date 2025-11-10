@@ -162,27 +162,45 @@ void GraphicsEngine::ScaleSelectedShape(float scale) {
     }
 }
 
-std::vector<D2D1_POINT_2F> GraphicsEngine::CalculateIntersections(std::shared_ptr<Shape> shape1, std::shared_ptr<Shape> shape2) {
-    std::vector<D2D1_POINT_2F> intersections;
-    // 实现求交逻辑
-    return intersections;
-}
-
 std::shared_ptr<Line> GraphicsEngine::CreatePerpendicularLine(std::shared_ptr<Line> line, D2D1_POINT_2F point) {
-    // 实现垂线绘制逻辑
-    return nullptr;
-}
+    if (!line) return nullptr;
 
-D2D1_POINT_2F GraphicsEngine::GetCircleCenter(std::shared_ptr<Circle> circle) {
-    return circle->GetCenter();
-}
+    // 获取直线的起点和终点
+    D2D1_POINT_2F start = line->GetStart();
+    D2D1_POINT_2F end = line->GetEnd();
 
-std::vector<std::shared_ptr<Line>> GraphicsEngine::CreateTangents(D2D1_POINT_2F point, std::shared_ptr<Circle> circle) {
-    std::vector<std::shared_ptr<Line>> tangents;
-    // 实现切线绘制逻辑
-    return tangents;
-}
+    // 计算直线方向向量
+    float dx = end.x - start.x;
+    float dy = end.y - start.y;
 
-void GraphicsEngine::DrawCoordinateInfo() {
-    // 实现坐标信息绘制
+    // 如果直线是水平的或垂直的，直接处理
+    if (fabs(dx) < 0.001f) { // 垂直线
+        // 垂直线 -> 水平垂直线
+        float length = 50.0f; // 固定长度
+        return std::make_shared<Line>(
+            D2D1::Point2F(point.x - length, point.y),
+            D2D1::Point2F(point.x + length, point.y));
+    } else if (fabs(dy) < 0.001f) { // 水平线
+        // 水平线 -> 垂直垂直线
+        float length = 50.0f; // 固定长度
+        return std::make_shared<Line>(
+            D2D1::Point2F(point.x, point.y - length),
+            D2D1::Point2F(point.x, point.y + length));
+    }
+
+    float slope = dy / dx;
+    float perpendicularSlope = -dx / dy;
+
+    // 使用点斜式方程计算垂直线
+    float length = 50.0f; // 固定长度
+
+    // 计算垂直线的两个端点
+    D2D1_POINT_2F p1, p2;
+    p1.x = point.x - length / sqrtf(1 + perpendicularSlope * perpendicularSlope);
+    p1.y = point.y + perpendicularSlope * (p1.x - point.x);
+
+    p2.x = point.x + length / sqrtf(1 + perpendicularSlope * perpendicularSlope);
+    p2.y = point.y + perpendicularSlope * (p2.x - point.x);
+
+    return std::make_shared<Line>(p1, p2);
 }

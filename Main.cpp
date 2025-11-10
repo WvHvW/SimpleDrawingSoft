@@ -121,6 +121,9 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
             m_graphicsEngine->Resize(LOWORD(lParam), HIWORD(lParam));
         }
         return 0;
+
+    case WM_ERASEBKGND:
+        return 1; // 防止闪烁
     }
 
     return DefWindowProc(m_hwnd, uMsg, wParam, lParam);
@@ -236,6 +239,22 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_currentCurve = std::make_shared<Curve>(std::vector<D2D1_POINT_2F>());
             m_currentCurve->AddPoint(currentPoint);
             m_isDrawingCurve = true;
+        }
+        break;
+    case DrawingMode::PERPENDICULAR:
+        // 选择直线
+        if (auto selectedShape = m_graphicsEngine->SelectShape(currentPoint)) {
+            if (selectedShape->GetType() == ShapeType::LINE) {
+                // 转换为 Line 指针
+                auto line = std::dynamic_pointer_cast<Line>(selectedShape);
+                if (line) {
+                    // 创建垂直线
+                    auto perpendicularLine = m_graphicsEngine->CreatePerpendicularLine(line, currentPoint);
+                    if (perpendicularLine) {
+                        m_graphicsEngine->AddShape(perpendicularLine);
+                    }
+                }
+            }
         }
         break;
     }
@@ -389,6 +408,7 @@ void MainWindow::OnKeyDown(WPARAM wParam) {
         break;
 
     case VK_DELETE:
+    case 'D':
         // Delete键：删除选中图形
         if (m_graphicsEngine->IsShapeSelected()) {
             m_graphicsEngine->DeleteSelectedShape();
@@ -624,6 +644,9 @@ void MainWindow::OnCommand(WPARAM wParam) {
     case 32777: m_currentMode = DrawingMode::PARALLELOGRAM; break;
     case 32779: m_currentMode = DrawingMode::POLYLINE; break;
     case 32778: m_currentMode = DrawingMode::CURVE; break;
+    case 32781:
+        m_currentMode = DrawingMode ::PERPENDICULAR;
+        break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }
 
