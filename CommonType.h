@@ -27,3 +27,10 @@ enum class DrawingMode {
     CENTER,
     TANGENT
 };
+
+enum class TransformMode {
+    NONE,
+    MOVE,
+    ROTATE,
+    SCALE
+};

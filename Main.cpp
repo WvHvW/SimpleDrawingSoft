@@ -28,6 +28,12 @@ private:
     bool m_isDrawingCurve = false;
     std::shared_ptr<Line> m_tempPolyLine;
 
+    // 变换状态
+    TransformMode m_transformMode = TransformMode::NONE;
+    bool m_isTransforming = false;
+    D2D1_POINT_2F m_transformStartPoint;
+    D2D1_POINT_2F m_transformReferencePoint; // 用于旋转和缩放的参考点
+
     // 贝塞尔曲线控制点
     D2D1_POINT_2F m_bezierControl1, m_bezierControl2;
     int m_bezierClickCount = 0;
@@ -38,12 +44,19 @@ private:
     void OnPaint();
     void OnLButtonDown(int x, int y);
     void OnRButtonDown(int x, int y);
+    void OnLButtonUp(int x, int y);
     void OnMouseMove(int x, int y);
     void OnKeyDown(WPARAM wParam);
     void OnCommand(WPARAM wParam);
     void ResetDrawingState();
     float CalculateDistance(D2D1_POINT_2F startPoint, D2D1_POINT_2F endPoint);
     std::shared_ptr<Triangle> CreateEquilateralTriangle(D2D1_POINT_2F vertex1, D2D1_POINT_2F vertex2);
+
+    // 变换方法
+    void StartTransform(TransformMode mode, D2D1_POINT_2F point);
+    void UpdateTransform(D2D1_POINT_2F point);
+    void EndTransform();
+    void CancelTransform();
 
     void SaveToFile();
     void LoadFromFile();
@@ -118,7 +131,17 @@ void MainWindow::OnLButtonDown(int x, int y) {
 
     switch (m_currentMode) {
     case DrawingMode::SELECT:
-        m_graphicsEngine->SelectShape(currentPoint);
+        // 首先尝试选择图形
+        if (m_graphicsEngine->SelectShape(currentPoint)) {
+            // 如果有图形被选中，根据当前变换模式开始变换
+            if (m_transformMode != TransformMode::NONE) {
+                StartTransform(m_transformMode, currentPoint);
+            }
+        } else {
+            // 点击空白处，取消选择和变换
+            m_graphicsEngine->ClearSelection();
+            CancelTransform();
+        }
         break;
 
     case DrawingMode::LINE:
@@ -220,8 +243,23 @@ void MainWindow::OnLButtonDown(int x, int y) {
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
+void MainWindow::OnLButtonUp(int x, int y) {
+    // 结束变换操作
+    if (m_isTransforming) {
+        EndTransform();
+    }
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
 void MainWindow::OnMouseMove(int x, int y) {
     D2D1_POINT_2F currentPoint = D2D1::Point2F(static_cast<float>(x), static_cast<float>(y));
+
+    // 变换操作
+    if (m_isTransforming) {
+        UpdateTransform(currentPoint);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
 
     if (m_isDrawing && m_tempShape) {
         switch (m_currentMode) {
@@ -338,13 +376,179 @@ void MainWindow::OnRButtonDown(int x, int y) {
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
-
 void MainWindow::OnKeyDown(WPARAM wParam) {
-    // 处理键盘消息，例如删除键
-    if (wParam == VK_DELETE) {
-        m_graphicsEngine->DeleteSelectedShape();
-        InvalidateRect(m_hwnd, nullptr, FALSE);
+    const float MOVE_STEP = 5.0f;   // 移动步长
+    const float ROTATE_STEP = 0.1f; // 旋转步长
+    const float SCALE_STEP = 0.1f;  // 缩放步长
+
+    switch (wParam) {
+    case VK_ESCAPE:
+        // ESC键：取消选择和变换
+        m_graphicsEngine->ClearSelection();
+        CancelTransform();
+        break;
+
+    case VK_DELETE:
+        // Delete键：删除选中图形
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->DeleteSelectedShape();
+            CancelTransform();
+        }
+        break;
+
+    // 变换模式切换
+    case 'M':
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_transformMode = TransformMode::MOVE;
+            // 状态提示：移动模式已激活
+        }
+        break;
+
+    case 'R':
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_transformMode = TransformMode::ROTATE;
+            // 状态提示：旋转模式已激活
+        }
+        break;
+
+    case 'S':
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_transformMode = TransformMode::SCALE;
+            // 状态提示：缩放模式已激活
+        }
+        break;
+
+    // 精细控制（在有选中图形时）
+    case VK_LEFT:
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->MoveSelectedShape(-MOVE_STEP, 0);
+        }
+        break;
+    case VK_RIGHT:
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->MoveSelectedShape(MOVE_STEP, 0);
+        }
+        break;
+    case VK_UP:
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->MoveSelectedShape(0, -MOVE_STEP);
+        }
+        break;
+    case VK_DOWN:
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->MoveSelectedShape(0, MOVE_STEP);
+        }
+        break;
+
+    case 'Q':
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->RotateSelectedShape(-ROTATE_STEP);
+        }
+        break;
+    case 'E':
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->RotateSelectedShape(ROTATE_STEP);
+        }
+        break;
+
+    case 'Z':
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->ScaleSelectedShape(1.0f - SCALE_STEP);
+        }
+        break;
+    case 'X':
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_graphicsEngine->ScaleSelectedShape(1.0f + SCALE_STEP);
+        }
+        break;
     }
+
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void MainWindow::StartTransform(TransformMode mode, D2D1_POINT_2F point) {
+    if (!m_graphicsEngine->IsShapeSelected()) return;
+
+    m_transformMode = mode;
+    m_transformStartPoint = point;
+    m_isTransforming = true;
+
+    // 对于旋转和缩放，需要计算参考点（图形中心）
+    if (mode == TransformMode::ROTATE || mode == TransformMode::SCALE) {
+        auto selectedShape = m_graphicsEngine->GetSelectedShape();
+        if (selectedShape)
+            m_transformReferencePoint = selectedShape->GetCenter();
+        else
+            m_transformReferencePoint = point;
+    }
+}
+
+void MainWindow::UpdateTransform(D2D1_POINT_2F point) {
+    if (!m_graphicsEngine->IsShapeSelected() || !m_isTransforming) return;
+
+    float dx = point.x - m_transformStartPoint.x;
+    float dy = point.y - m_transformStartPoint.y;
+
+    switch (m_transformMode) {
+    case TransformMode::MOVE:
+        // 移动：直接应用偏移量
+        m_graphicsEngine->MoveSelectedShape(dx, dy);
+        break;
+
+    case TransformMode::ROTATE:
+        // 旋转：基于参考点计算角度
+        {
+            // 计算从参考点到起始点的向量
+            float startVecX = m_transformStartPoint.x - m_transformReferencePoint.x;
+            float startVecY = m_transformStartPoint.y - m_transformReferencePoint.y;
+
+            // 计算从参考点到当前点的向量
+            float currentVecX = point.x - m_transformReferencePoint.x;
+            float currentVecY = point.y - m_transformReferencePoint.y;
+
+            // 计算角度（弧度）
+            float startAngle = atan2f(startVecY, startVecX);
+            float currentAngle = atan2f(currentVecY, currentVecX);
+            float angle = currentAngle - startAngle;
+
+            m_graphicsEngine->RotateSelectedShape(angle);
+        }
+        break;
+
+    case TransformMode::SCALE:
+        // 缩放：基于参考点计算缩放比例
+        {
+            // 计算起始距离
+            float startDistX = m_transformStartPoint.x - m_transformReferencePoint.x;
+            float startDistY = m_transformStartPoint.y - m_transformReferencePoint.y;
+            float startDistance = sqrtf(startDistX * startDistX + startDistY * startDistY);
+
+            // 计算当前距离
+            float currentDistX = point.x - m_transformReferencePoint.x;
+            float currentDistY = point.y - m_transformReferencePoint.y;
+            float currentDistance = sqrtf(currentDistX * currentDistX + currentDistY * currentDistY);
+
+            // 计算缩放比例
+            if (startDistance > 0.1f) { // 避免除以零
+                float scale = currentDistance / startDistance;
+                m_graphicsEngine->ScaleSelectedShape(scale);
+            }
+        }
+        break;
+    }
+
+    // 更新起始点，实现连续变换
+    m_transformStartPoint = point;
+}
+
+void MainWindow::EndTransform() {
+    m_isTransforming = false;
+    // 注意：不重置 m_transformMode，保持当前变换模式
+}
+
+void MainWindow::CancelTransform() {
+    m_isTransforming = false;
+    m_transformMode = TransformMode::NONE;
 }
 
 void MainWindow::OnPaint() {

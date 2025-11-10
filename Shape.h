@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <algorithm>
 #include "CommonType.h" // 包含公共类型定义
 
 class Shape {
@@ -21,6 +22,8 @@ public:
     virtual void Move(float dx, float dy) = 0;
     virtual void Rotate(float angle) = 0;
     virtual void Scale(float scale) = 0;
+    virtual D2D1_POINT_2F GetCenter() const = 0;
+    virtual D2D1_RECT_F GetBounds() const = 0;
 
     ShapeType GetType() const {
         return m_type;
@@ -66,6 +69,18 @@ public:
         return m_end;
     }
 
+    D2D1_POINT_2F GetCenter() const override {
+        return D2D1::Point2F((m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2);
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        return D2D1::RectF(
+            min(m_start.x, m_end.x),
+            min(m_start.y, m_end.y),
+            max(m_start.x, m_end.x),
+            max(m_start.y, m_end.y));
+    }
+
 private:
     D2D1_POINT_2F m_start, m_end;
 };
@@ -89,11 +104,19 @@ public:
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
 
-    D2D1_POINT_2F GetCenter() const {
+    D2D1_POINT_2F GetCenter() const override {
         return m_center;
     }
     float GetRadius() const {
         return m_radius;
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        return D2D1::RectF(
+            m_center.x - m_radius,
+            m_center.y - m_radius,
+            m_center.x + m_radius,
+            m_center.y + m_radius);
     }
 
 private:
@@ -115,6 +138,20 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+
+    D2D1_POINT_2F GetCenter() const override {
+        return D2D1::Point2F(
+            (m_start.x + m_end.x) / 2,
+            (m_start.y + m_end.y) / 2);
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        return D2D1::RectF(
+            min(m_start.x, m_end.x),
+            min(m_start.y, m_end.y),
+            max(m_start.x, m_end.x),
+            max(m_start.y, m_end.y));
+    }
 
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
@@ -141,6 +178,28 @@ public:
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
 
+    D2D1_POINT_2F GetCenter() const override {
+        float centerX = (m_points[0].x + m_points[1].x + m_points[2].x) / 3;
+        float centerY = (m_points[0].y + m_points[1].y + m_points[2].y) / 3;
+        return D2D1::Point2F(centerX, centerY);
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        float minX = m_points[0].x;
+        float minY = m_points[0].y;
+        float maxX = m_points[0].x;
+        float maxY = m_points[0].y;
+
+        for (int i = 1; i < 3; i++) {
+            if (m_points[i].x < minX) minX = m_points[i].x;
+            if (m_points[i].y < minY) minY = m_points[i].y;
+            if (m_points[i].x > maxX) maxX = m_points[i].x;
+            if (m_points[i].y > maxY) maxY = m_points[i].y;
+        }
+
+        return D2D1::RectF(minX, minY, maxX, maxY);
+    }
+
 private:
     D2D1_POINT_2F m_points[3];
 };
@@ -162,6 +221,19 @@ public:
 
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
+    D2D1_POINT_2F GetCenter() const override {
+        return m_center;
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        float width = std::abs(m_corner.x - m_center.x);
+        float height = std::abs(m_corner.y - m_center.y);
+        return D2D1::RectF(
+            m_center.x - width,
+            m_center.y - height,
+            m_center.x + width,
+            m_center.y + height);
+    }
 
 private:
     D2D1_POINT_2F m_center;
@@ -185,6 +257,28 @@ public:
 
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
+
+    D2D1_POINT_2F GetCenter() const override {
+        float centerX = (m_points[0].x + m_points[1].x + m_points[2].x + m_points[3].x) / 4;
+        float centerY = (m_points[0].y + m_points[1].y + m_points[2].y + m_points[3].y) / 4;
+        return D2D1::Point2F(centerX, centerY);
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        float minX = m_points[0].x;
+        float minY = m_points[0].y;
+        float maxX = m_points[0].x;
+        float maxY = m_points[0].y;
+
+        for (int i = 1; i < 4; i++) {
+            if (m_points[i].x < minX) minX = m_points[i].x;
+            if (m_points[i].y < minY) minY = m_points[i].y;
+            if (m_points[i].x > maxX) maxX = m_points[i].x;
+            if (m_points[i].y > maxY) maxY = m_points[i].y;
+        }
+
+        return D2D1::RectF(minX, minY, maxX, maxY);
+    }
 
 private:
     D2D1_POINT_2F m_points[4]; // 四个顶点
@@ -216,6 +310,40 @@ public:
         return m_points;
     }
 
+    D2D1_POINT_2F GetCenter() const override {
+        if (m_points.empty()) {
+            return D2D1::Point2F(0, 0);
+        }
+
+        float sumX = 0, sumY = 0;
+        for (const auto &point : m_points) {
+            sumX += point.x;
+            sumY += point.y;
+        }
+
+        return D2D1::Point2F(sumX / m_points.size(), sumY / m_points.size());
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        if (m_points.empty()) {
+            return D2D1::RectF(0, 0, 0, 0);
+        }
+
+        float minX = m_points[0].x;
+        float minY = m_points[0].y;
+        float maxX = m_points[0].x;
+        float maxY = m_points[0].y;
+
+        for (const auto &point : m_points) {
+            minX = min(minX, point.x);
+            minY = min(minY, point.y);
+            maxX = max(maxX, point.x);
+            maxY = max(maxY, point.y);
+        }
+
+        return D2D1::RectF(minX, minY, maxX, maxY);
+    }
+
 private:
     std::vector<D2D1_POINT_2F> m_points;
     bool m_isBezier; // 是否为贝塞尔曲线
@@ -245,6 +373,40 @@ public:
     }
     void SetPoints(const std::vector<D2D1_POINT_2F> &points) {
         m_points = points;
+    }
+
+    D2D1_POINT_2F GetCenter() const override {
+        if (m_points.empty()) {
+            return D2D1::Point2F(0, 0);
+        }
+
+        float sumX = 0, sumY = 0;
+        for (const auto &point : m_points) {
+            sumX += point.x;
+            sumY += point.y;
+        }
+
+        return D2D1::Point2F(sumX / m_points.size(), sumY / m_points.size());
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        if (m_points.empty()) {
+            return D2D1::RectF(0, 0, 0, 0);
+        }
+
+        float minX = m_points[0].x;
+        float minY = m_points[0].y;
+        float maxX = m_points[0].x;
+        float maxY = m_points[0].y;
+
+        for (const auto &point : m_points) {
+            minX = min(minX, point.x);
+            minY = min(minY, point.y);
+            maxX = max(maxX, point.x);
+            maxY = max(maxY, point.y);
+        }
+
+        return D2D1::RectF(minX, minY, maxX, maxY);
     }
 
 private:
