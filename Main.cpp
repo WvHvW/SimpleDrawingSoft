@@ -246,15 +246,50 @@ void MainWindow::OnLButtonDown(int x, int y) {
     case DrawingMode::POLYLINE:
         m_polyPoints.push_back(currentPoint);
         break;
+
     case DrawingMode::CURVE:
-        // 曲线绘制：按下左键开始绘制，移动时连续添加点，右键结束
-        if (!m_isDrawingCurve) {
-            // 开始新曲线
-            m_currentCurve = std::make_shared<Curve>(std::vector<D2D1_POINT_2F>());
-            m_currentCurve->AddPoint(currentPoint);
-            m_isDrawingCurve = true;
+        if (m_bezierClickCount == 0) {
+            // 第一次点击：设置起点
+            m_startPoint = currentPoint;
+            m_bezierClickCount = 1;
+            m_isDrawing = true;
+            // 创建临时曲线预览，起点和终点相同，控制点也相同
+            m_tempShape = std::make_shared<Curve>(
+                m_startPoint,
+                m_startPoint,
+                m_startPoint,
+                m_startPoint);
+        } else if (m_bezierClickCount == 1) {
+            // 第二次点击：设置第一个控制点
+            m_bezierControl1 = currentPoint;
+            m_bezierClickCount = 2;
+            // 更新预览，起点到第一个控制点的直线
+            m_tempShape = std::make_shared<Curve>(
+                m_startPoint,
+                m_bezierControl1,
+                m_bezierControl1,
+                m_bezierControl1);
+        } else if (m_bezierClickCount == 2) {
+            // 第三次点击：设置第二个控制点
+            m_bezierControl2 = currentPoint;
+            m_bezierClickCount = 3;
+            // 更新预览，包含两个控制点的曲线
+            m_tempShape = std::make_shared<Curve>(
+                m_startPoint,
+                m_bezierControl1,
+                m_bezierControl2,
+                m_bezierControl2);
+        } else if (m_bezierClickCount == 3) {
+            // 第四次点击：设置终点，完成曲线
+            m_graphicsEngine->AddShape(std::make_shared<Curve>(
+                m_startPoint,
+                m_bezierControl1,
+                m_bezierControl2,
+                currentPoint));
+            ResetDrawingState();
         }
         break;
+
     case DrawingMode::PERPENDICULAR:
         // 选择直线
         if (auto selectedShape = m_graphicsEngine->SelectShape(currentPoint)) {
@@ -393,17 +428,32 @@ void MainWindow::OnMouseMove(int x, int y) {
 
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
-    // 曲线绘制：实时添加点
-    if (m_currentMode == DrawingMode::CURVE && m_isDrawingCurve && m_currentCurve) {
-        // 只在移动时添加点，避免重复添加相同点
-        static D2D1_POINT_2F lastPoint = {-1, -1};
-        float distance = CalculateDistance(lastPoint, currentPoint);
 
-        if (distance > 2.0f) { // 避免添加过于密集的点
-            m_currentCurve->AddPoint(currentPoint);
-            lastPoint = currentPoint;
-            InvalidateRect(m_hwnd, nullptr, FALSE);
+    // 曲线模式：实时预览
+    if (m_currentMode == DrawingMode::CURVE && m_isDrawing && m_tempShape) {
+        if (m_bezierClickCount == 1) {
+            // 第一次点击后移动：预览从起点到当前点的直线
+            m_tempShape = std::make_shared<Curve>(
+                m_startPoint,
+                currentPoint,
+                currentPoint,
+                currentPoint);
+        } else if (m_bezierClickCount == 2) {
+            // 第二次点击后移动：预览包含第一个控制点的曲线
+            m_tempShape = std::make_shared<Curve>(
+                m_startPoint,
+                m_bezierControl1,
+                currentPoint,
+                currentPoint);
+        } else if (m_bezierClickCount == 3) {
+            // 第三次点击后移动：预览包含两个控制点的完整曲线
+            m_tempShape = std::make_shared<Curve>(
+                m_startPoint,
+                m_bezierControl1,
+                m_bezierControl2,
+                currentPoint);
         }
+        InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 
     // 多段线模式：实时预览当前线段
@@ -473,6 +523,9 @@ void MainWindow::ResetDrawingState() {
     m_tempPolyLine.reset();
     ResetTangentState();
     ResetCenterState();
+    m_bezierClickCount = 0;
+    m_bezierControl1 = D2D1::Point2F(0, 0);
+    m_bezierControl2 = D2D1::Point2F(0, 0);
 }
 
 void MainWindow::ResetTangentState() {
@@ -489,15 +542,11 @@ void MainWindow::ResetCenterState() {
 void MainWindow::OnRButtonDown(int x, int y) {
     // 右键结束曲线绘制
     if (m_currentMode == DrawingMode::CURVE && m_isDrawingCurve && m_currentCurve) {
-        // 完成曲线绘制
-        if (m_currentCurve->GetPoints().size() >= 2) {
-            m_graphicsEngine->AddShape(m_currentCurve);
-        }
         ResetDrawingState();
     } else if (m_currentMode == DrawingMode::POLYLINE) {
         // 结束多段线绘制
         if (m_polyPoints.size() >= 2) {
-            auto polyline = std::make_shared<Curve>(m_polyPoints);
+            auto polyline = std::make_shared<Polyline>(m_polyPoints);
             m_graphicsEngine->AddShape(polyline);
         }
         m_polyPoints.clear();

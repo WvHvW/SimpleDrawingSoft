@@ -291,12 +291,10 @@ private:
     D2D1_POINT_2F m_points[4]; // 四个顶点
 };
 
-// 曲线类（使用贝塞尔曲线）
+// 曲线类（使用三次贝塞尔曲线）
 class Curve : public Shape {
 public:
-    Curve(const std::vector<D2D1_POINT_2F> &points);
-    Curve(D2D1_POINT_2F start, D2D1_POINT_2F control, D2D1_POINT_2F end);                          // 二次贝塞尔曲线
-    Curve(D2D1_POINT_2F start, D2D1_POINT_2F control1, D2D1_POINT_2F control2, D2D1_POINT_2F end); // 三次贝塞尔曲线
+    Curve(D2D1_POINT_2F start, D2D1_POINT_2F control1, D2D1_POINT_2F control2, D2D1_POINT_2F end);
 
     void Draw(ID2D1RenderTarget *pRenderTarget,
               ID2D1SolidColorBrush *pBrush,
@@ -311,8 +309,7 @@ public:
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
 
-    void AddPoint(D2D1_POINT_2F point);
-    void ClearPoints();
+    // 获取控制点
     const std::vector<D2D1_POINT_2F> &GetPoints() const {
         return m_points;
     }
@@ -353,7 +350,9 @@ public:
 
 private:
     std::vector<D2D1_POINT_2F> m_points;
-    bool m_isBezier; // 是否为贝塞尔曲线
+
+    // 计算贝塞尔曲线在参数t处的点
+    D2D1_POINT_2F CalculateBezierPoint(float t);
 };
 
 // 多段线类

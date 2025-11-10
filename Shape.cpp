@@ -603,19 +603,8 @@ void Parallelogram::Deserialize(const std::string &data) {
 }
 
 // Curve 实现
-Curve::Curve(const std::vector<D2D1_POINT_2F> &points) :
-    Shape(ShapeType::CURVE), m_points(points), m_isBezier(false) {
-}
-
-Curve::Curve(D2D1_POINT_2F start, D2D1_POINT_2F control, D2D1_POINT_2F end) :
-    Shape(ShapeType::CURVE), m_isBezier(true) {
-    m_points.push_back(start);
-    m_points.push_back(control);
-    m_points.push_back(end);
-}
-
 Curve::Curve(D2D1_POINT_2F start, D2D1_POINT_2F control1, D2D1_POINT_2F control2, D2D1_POINT_2F end) :
-    Shape(ShapeType::CURVE), m_isBezier(true) {
+    Shape(ShapeType::CURVE) {
     m_points.push_back(start);
     m_points.push_back(control1);
     m_points.push_back(control2);
@@ -627,73 +616,48 @@ void Curve::Draw(ID2D1RenderTarget *pRenderTarget,
                  ID2D1SolidColorBrush *pSelectedBrush,
                  ID2D1StrokeStyle *pDashStrokeStyle) {
     if (!pRenderTarget || !pNormalBrush || !pSelectedBrush) return;
-    if (m_points.size() < 2) return;
+    if (m_points.size() != 4) return;
 
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pNormalBrush;
 
-    if (m_isBezier && m_points.size() == 3) {
-        // 二次贝塞尔曲线
-        ID2D1PathGeometry *pPathGeometry = nullptr;
-        ID2D1Factory *pFactory = nullptr;
-        pRenderTarget->GetFactory(&pFactory);
+    // 创建贝塞尔曲线路径
+    ID2D1PathGeometry *pPathGeometry = nullptr;
+    ID2D1Factory *pFactory = nullptr;
+    pRenderTarget->GetFactory(&pFactory);
 
-        if (SUCCEEDED(pFactory->CreatePathGeometry(&pPathGeometry))) {
-            ID2D1GeometrySink *pSink = nullptr;
-            if (SUCCEEDED(pPathGeometry->Open(&pSink))) {
-                pSink->BeginFigure(m_points[0], D2D1_FIGURE_BEGIN_HOLLOW);
-                pSink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(m_points[1], m_points[2]));
-                pSink->EndFigure(D2D1_FIGURE_END_OPEN);
-                pSink->Close();
-                pSink->Release();
-            }
-
-            if (m_isSelected && pDashStrokeStyle)
-                pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f, pDashStrokeStyle);
-            else
-                pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
-            pPathGeometry->Release();
+    if (SUCCEEDED(pFactory->CreatePathGeometry(&pPathGeometry))) {
+        ID2D1GeometrySink *pSink = nullptr;
+        if (SUCCEEDED(pPathGeometry->Open(&pSink))) {
+            pSink->BeginFigure(m_points[0], D2D1_FIGURE_BEGIN_HOLLOW);
+            pSink->AddBezier(D2D1::BezierSegment(m_points[1], m_points[2], m_points[3]));
+            pSink->EndFigure(D2D1_FIGURE_END_OPEN);
+            pSink->Close();
+            pSink->Release();
         }
 
-        if (pFactory) pFactory->Release();
-    } else if (m_isBezier && m_points.size() == 4) {
-        // 三次贝塞尔曲线
-        ID2D1PathGeometry *pPathGeometry = nullptr;
-        ID2D1Factory *pFactory = nullptr;
-        pRenderTarget->GetFactory(&pFactory);
+        if (m_isSelected && pDashStrokeStyle)
+            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f, pDashStrokeStyle);
+        else
+            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
 
-        if (SUCCEEDED(pFactory->CreatePathGeometry(&pPathGeometry))) {
-            ID2D1GeometrySink *pSink = nullptr;
-            if (SUCCEEDED(pPathGeometry->Open(&pSink))) {
-                pSink->BeginFigure(m_points[0], D2D1_FIGURE_BEGIN_HOLLOW);
-                pSink->AddBezier(D2D1::BezierSegment(m_points[1], m_points[2], m_points[3]));
-                pSink->EndFigure(D2D1_FIGURE_END_OPEN);
-                pSink->Close();
-                pSink->Release();
-            }
-            if (m_isSelected && pDashStrokeStyle)
-                pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f, pDashStrokeStyle);
-            else
-                pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
-            pPathGeometry->Release();
-        }
-
-        if (pFactory) pFactory->Release();
-    } else {
-        // 自由曲线 - 使用多段线连接所有点
-        for (size_t i = 1; i < m_points.size(); i++) {
-            if (m_isSelected && pDashStrokeStyle)
-                pRenderTarget->DrawLine(m_points[i - 1], m_points[i], currentBrush, 2.0f, pDashStrokeStyle);
-            else
-                pRenderTarget->DrawLine(m_points[i - 1], m_points[i], currentBrush, 2.0f);
-        }
+        pPathGeometry->Release();
     }
+
+    if (pFactory) pFactory->Release();
 }
 
 bool Curve::HitTest(D2D1_POINT_2F point) {
-    // 简单的点击测试：检查点是否靠近曲线的任何线段
-    for (size_t i = 1; i < m_points.size(); i++) {
-        D2D1_POINT_2F p1 = m_points[i - 1];
-        D2D1_POINT_2F p2 = m_points[i];
+    if (m_points.size() != 4) return false;
+
+    // 将贝塞尔曲线细分为多个小线段，然后检测点是否靠近这些线段
+    const int segments = 20; // 将曲线分为20段
+    for (int i = 0; i < segments; i++) {
+        float t1 = static_cast<float>(i) / segments;
+        float t2 = static_cast<float>(i + 1) / segments;
+
+        // 计算贝塞尔曲线上的两个点
+        D2D1_POINT_2F p1 = CalculateBezierPoint(t1);
+        D2D1_POINT_2F p2 = CalculateBezierPoint(t2);
 
         // 计算点到线段的距离
         float a = point.x - p1.x;
@@ -727,6 +691,24 @@ bool Curve::HitTest(D2D1_POINT_2F point) {
         }
     }
     return false;
+}
+
+// 计算贝塞尔曲线在参数t处的点
+D2D1_POINT_2F Curve::CalculateBezierPoint(float t) {
+    if (m_points.size() != 4) return D2D1::Point2F(0, 0);
+
+    float u = 1 - t;
+    float tt = t * t;
+    float uu = u * u;
+    float uuu = uu * u;
+    float ttt = tt * t;
+
+    D2D1_POINT_2F p;
+    p.x = uuu * m_points[0].x + 3 * uu * t * m_points[1].x + 3 * u * tt * m_points[2].x + ttt * m_points[3].x;
+
+    p.y = uuu * m_points[0].y + 3 * uu * t * m_points[1].y + 3 * u * tt * m_points[2].y + ttt * m_points[3].y;
+
+    return p;
 }
 
 void Curve::Move(float dx, float dy) {
@@ -779,19 +761,11 @@ void Curve::Scale(float scale) {
     }
 }
 
-void Curve::AddPoint(D2D1_POINT_2F point) {
-    m_points.push_back(point);
-}
-
-void Curve::ClearPoints() {
-    m_points.clear();
-}
-
 std::string Curve::Serialize() {
     std::ostringstream oss;
-    oss << "Curve " << m_points.size() << " " << (m_isBezier ? 1 : 0);
+    oss << "Curve ";
     for (const auto &point : m_points) {
-        oss << " " << point.x << " " << point.y;
+        oss << point.x << " " << point.y << " ";
     }
     return oss.str();
 }
@@ -799,14 +773,9 @@ std::string Curve::Serialize() {
 void Curve::Deserialize(const std::string &data) {
     std::istringstream iss(data);
     std::string type;
-    size_t pointCount;
-    int isBezier;
-
-    iss >> type >> pointCount >> isBezier;
-    m_isBezier = (isBezier != 0);
 
     m_points.clear();
-    for (size_t i = 0; i < pointCount; i++) {
+    for (int i = 0; i < 4; i++) {
         D2D1_POINT_2F point;
         iss >> point.x >> point.y;
         m_points.push_back(point);
