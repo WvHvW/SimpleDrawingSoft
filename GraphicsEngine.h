@@ -39,16 +39,18 @@ public:
     std::shared_ptr<Shape> SelectShape(D2D1_POINT_2F point);
     void ClearSelection();
 
+    // 获取所有图形
+    const std::vector<std::shared_ptr<Shape>> &GetShapes() const {
+        return m_shapes;
+    }
+
     // 变换操作
     void MoveSelectedShape(float dx, float dy);
     void RotateSelectedShape(float angle);
     void ScaleSelectedShape(float scale);
 
-    // 图形计算
-    std::vector<D2D1_POINT_2F> CalculateIntersections(std::shared_ptr<Shape> shape1, std::shared_ptr<Shape> shape2);
+    // 绘制垂线
     std::shared_ptr<Line> CreatePerpendicularLine(std::shared_ptr<Line> line, D2D1_POINT_2F point);
-    D2D1_POINT_2F GetCircleCenter(std::shared_ptr<Circle> circle);
-    std::vector<std::shared_ptr<Line>> CreateTangents(D2D1_POINT_2F point, std::shared_ptr<Circle> circle);
 
     ID2D1RenderTarget *GetRenderTarget() {
         return m_pRenderTarget;

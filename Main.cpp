@@ -136,6 +136,7 @@ void MainWindow::OnLButtonDown(int x, int y) {
     case DrawingMode::SELECT:
         // 首先尝试选择图形
         if (m_graphicsEngine->SelectShape(currentPoint)) {
+            SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
             // 如果有图形被选中，根据当前变换模式开始变换
             if (m_transformMode != TransformMode::NONE) {
                 StartTransform(m_transformMode, currentPoint);
@@ -144,6 +145,7 @@ void MainWindow::OnLButtonDown(int x, int y) {
             // 点击空白处，取消选择和变换
             m_graphicsEngine->ClearSelection();
             CancelTransform();
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
         }
         break;
 
@@ -273,6 +275,26 @@ void MainWindow::OnLButtonUp(int x, int y) {
 void MainWindow::OnMouseMove(int x, int y) {
     D2D1_POINT_2F currentPoint = D2D1::Point2F(static_cast<float>(x), static_cast<float>(y));
 
+    // 在SELECT模式下检查鼠标是否悬停在图元上
+    if (m_currentMode == DrawingMode::SELECT) {
+        bool isOverShape = false;
+
+        // 检查鼠标是否在任何一个图元上
+        for (const auto &shape : m_graphicsEngine->GetShapes()) {
+            if (shape->HitTest(currentPoint)) {
+                isOverShape = true;
+                break;
+            }
+        }
+
+        // 根据是否悬停在图元上设置不同的光标
+        if (isOverShape) {
+            SetCursor(LoadCursor(nullptr, IDC_HAND)); // 手型光标
+        } else {
+            SetCursor(LoadCursor(nullptr, IDC_ARROW)); // 默认箭头光标
+        }
+    }
+
     // 变换操作
     if (m_isTransforming) {
         UpdateTransform(currentPoint);
@@ -391,6 +413,7 @@ void MainWindow::OnRButtonDown(int x, int y) {
     } else {
         // 其他模式的右键取消
         ResetDrawingState();
+        m_transformMode = TransformMode::NONE;
     }
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -413,28 +436,6 @@ void MainWindow::OnKeyDown(WPARAM wParam) {
         if (m_graphicsEngine->IsShapeSelected()) {
             m_graphicsEngine->DeleteSelectedShape();
             CancelTransform();
-        }
-        break;
-
-    // 变换模式切换
-    case 'M':
-        if (m_graphicsEngine->IsShapeSelected()) {
-            m_transformMode = TransformMode::MOVE;
-            // 状态提示：移动模式已激活
-        }
-        break;
-
-    case 'R':
-        if (m_graphicsEngine->IsShapeSelected()) {
-            m_transformMode = TransformMode::ROTATE;
-            // 状态提示：旋转模式已激活
-        }
-        break;
-
-    case 'S':
-        if (m_graphicsEngine->IsShapeSelected()) {
-            m_transformMode = TransformMode::SCALE;
-            // 状态提示：缩放模式已激活
         }
         break;
 
@@ -646,6 +647,21 @@ void MainWindow::OnCommand(WPARAM wParam) {
     case 32778: m_currentMode = DrawingMode::CURVE; break;
     case 32781:
         m_currentMode = DrawingMode ::PERPENDICULAR;
+        break;
+    case 32787:
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_transformMode = TransformMode::MOVE;
+        };
+        break;
+    case 32788:
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_transformMode = TransformMode::ROTATE;
+        }
+        break;
+    case 32789:
+        if (m_graphicsEngine->IsShapeSelected()) {
+            m_transformMode = TransformMode::SCALE;
+        }
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }
