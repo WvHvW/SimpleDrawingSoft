@@ -28,6 +28,12 @@ private:
     bool m_isDrawingCurve = false;
     std::shared_ptr<Line> m_tempPolyLine;
 
+    // 菱形绘制参数
+    D2D1_POINT_2F m_diamondCenter;
+    float m_diamondRadiusX;
+    float m_diamondRadiusY;
+    float m_diamondAngle;
+
     // 变换状态
     TransformMode m_transformMode = TransformMode::NONE;
     bool m_isTransforming = false;
@@ -222,12 +228,21 @@ void MainWindow::OnLButtonDown(int x, int y) {
 
     case DrawingMode::DIAMOND:
         if (m_clickCount == 0) {
-            m_startPoint = currentPoint;
+            m_diamondCenter = currentPoint;
             m_clickCount = 1;
             m_isDrawing = true;
-            m_tempShape = std::make_shared<Diamond>(m_startPoint, currentPoint);
+            // 预览用当前鼠标作为半径/角度来源
+            float dx = currentPoint.x - m_diamondCenter.x;
+            float dy = currentPoint.y - m_diamondCenter.y;
+            m_diamondRadiusX = hypotf(dx, dy);
+            m_diamondRadiusY = m_diamondRadiusX * 0.6f;
+            m_diamondAngle = atan2f(dy, dx);
+            m_tempShape = std::make_shared<Diamond>(
+                m_diamondCenter, m_diamondRadiusX, m_diamondRadiusY, m_diamondAngle);
         } else {
-            m_graphicsEngine->AddShape(std::make_shared<Diamond>(m_startPoint, currentPoint));
+            // 第二次点击：固定参数并正式添加
+            m_graphicsEngine->AddShape(std::make_shared<Diamond>(
+                m_diamondCenter, m_diamondRadiusX, m_diamondRadiusY, m_diamondAngle));
             ResetDrawingState();
         }
         break;
@@ -431,7 +446,16 @@ void MainWindow::OnMouseMove(int x, int y) {
             break;
 
         case DrawingMode::DIAMOND:
-            m_tempShape = std::make_shared<Diamond>(m_startPoint, currentPoint);
+            if (m_isDrawing && m_clickCount == 1) {
+                // 用当前鼠标更新半径/角度
+                float dx = currentPoint.x - m_diamondCenter.x;
+                float dy = currentPoint.y - m_diamondCenter.y;
+                m_diamondRadiusX = hypotf(dx, dy);
+                m_diamondRadiusY = m_diamondRadiusX * 0.6f;
+                m_diamondAngle = atan2f(dy, dx);
+                m_tempShape = std::make_shared<Diamond>(
+                    m_diamondCenter, m_diamondRadiusX, m_diamondRadiusY, m_diamondAngle);
+            }
             break;
 
         case DrawingMode::PARALLELOGRAM:
@@ -538,6 +562,9 @@ void MainWindow::ResetDrawingState() {
     m_tempShape.reset();
     m_polyPoints.clear();
     m_isDrawingCurve = false;
+    m_diamondRadiusX = 50.0f;
+    m_diamondRadiusY = 30.0f;
+    m_diamondAngle = 0.0f;
     m_currentCurve.reset();
     m_tempPolyLine.reset();
     ResetTangentState();
@@ -565,7 +592,7 @@ void MainWindow::OnRButtonDown(int x, int y) {
     } else if (m_currentMode == DrawingMode::POLYLINE) {
         // 结束多段线绘制
         if (m_polyPoints.size() >= 2) {
-            auto polyline = std::make_shared<Polyline>(m_polyPoints);
+            auto polyline = std::make_shared<Poly>(m_polyPoints);
             m_graphicsEngine->AddShape(polyline);
         }
         m_polyPoints.clear();

@@ -161,9 +161,9 @@ Rect::Rect(D2D1_POINT_2F start, D2D1_POINT_2F end) :
 }
 
 void Rect::Draw(ID2D1RenderTarget *pRenderTarget,
-                     ID2D1SolidColorBrush *pNormalBrush,
-                     ID2D1SolidColorBrush *pSelectedBrush,
-                     ID2D1StrokeStyle *pDashStrokeStyle) {
+                ID2D1SolidColorBrush *pNormalBrush,
+                ID2D1SolidColorBrush *pSelectedBrush,
+                ID2D1StrokeStyle *pDashStrokeStyle) {
     if (!pRenderTarget || !pNormalBrush || !pSelectedBrush) return;
 
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pNormalBrush;
@@ -372,106 +372,119 @@ void Triangle::Deserialize(const std::string &data) {
 }
 
 // Diamond 实现
-Diamond::Diamond(D2D1_POINT_2F center, D2D1_POINT_2F corner) :
-    Shape(ShapeType::DIAMOND), m_center(center), m_corner(corner) {
+// 工具：实时计算旋转后 4 顶点
+static void GetDiamondPoints(const D2D1_POINT_2F &c,
+                             float rx, float ry, float ang,
+                             D2D1_POINT_2F pts[4]) {
+    float co = cosf(ang), sn = sinf(ang);
+    D2D1_POINT_2F ux = {rx * co, rx * sn};
+    D2D1_POINT_2F uy = {-ry * sn, ry * co};
+
+    pts[0] = D2D1::Point2F(c.x + ux.x, c.y + ux.y); // 上
+    pts[1] = D2D1::Point2F(c.x + uy.x, c.y + uy.y); // 右
+    pts[2] = D2D1::Point2F(c.x - ux.x, c.y - ux.y); // 下
+    pts[3] = D2D1::Point2F(c.x - uy.x, c.y - uy.y); // 左
 }
 
-void Diamond::Draw(ID2D1RenderTarget *pRenderTarget,
-                   ID2D1SolidColorBrush *pNormalBrush,
-                   ID2D1SolidColorBrush *pSelectedBrush,
-                   ID2D1StrokeStyle *pDashStrokeStyle) {
-    if (!pRenderTarget || !pNormalBrush || !pSelectedBrush) return;
+Diamond::Diamond(D2D1_POINT_2F center, float radiusX, float radiusY, float angle) :
+    Shape(ShapeType::DIAMOND), m_center(center),
+    m_radiusX(radiusX), m_radiusY(radiusY), m_angle(angle) {
+}
 
-    ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pNormalBrush;
+void Diamond::Draw(ID2D1RenderTarget *rt,
+                   ID2D1SolidColorBrush *nrm,
+                   ID2D1SolidColorBrush *sel,
+                   ID2D1StrokeStyle *dash) {
+    if (!rt || !nrm || !sel) return;
+    ID2D1SolidColorBrush *cur = m_isSelected ? sel : nrm;
+    D2D1_POINT_2F pts[4];
+    GetDiamondPoints(m_center, m_radiusX, m_radiusY, m_angle, pts);
 
-    // 计算菱形的四个顶点
-    float dx = m_corner.x - m_center.x;
-    float dy = m_corner.y - m_center.y;
-
-    D2D1_POINT_2F points[4] = {
-        {m_center.x, m_center.y - dy}, // 上
-        {m_center.x + dx, m_center.y}, // 右
-        {m_center.x, m_center.y + dy}, // 下
-        {m_center.x - dx, m_center.y}  // 左
-    };
-
-    // 创建菱形路径
-    ID2D1PathGeometry *pPathGeometry = nullptr;
-    ID2D1Factory *pFactory = nullptr;
-    pRenderTarget->GetFactory(&pFactory);
-
-    if (SUCCEEDED(pFactory->CreatePathGeometry(&pPathGeometry))) {
-        ID2D1GeometrySink *pSink = nullptr;
-        if (SUCCEEDED(pPathGeometry->Open(&pSink))) {
-            pSink->BeginFigure(points[0], D2D1_FIGURE_BEGIN_FILLED);
-            for (int i = 1; i < 4; i++) {
-                pSink->AddLine(points[i]);
-            }
-            pSink->EndFigure(D2D1_FIGURE_END_CLOSED);
-            pSink->Close();
-            pSink->Release();
+    ID2D1Factory *f = nullptr;
+    rt->GetFactory(&f);
+    ID2D1PathGeometry *geo = nullptr;
+    if (SUCCEEDED(f->CreatePathGeometry(&geo))) {
+        ID2D1GeometrySink *s = nullptr;
+        if (SUCCEEDED(geo->Open(&s))) {
+            s->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
+            for (int i = 1; i < 4; ++i) s->AddLine(pts[i]);
+            s->EndFigure(D2D1_FIGURE_END_CLOSED);
+            s->Close();
+            s->Release();
         }
-        if (m_isSelected && pDashStrokeStyle)
-            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f, pDashStrokeStyle);
+        if (m_isSelected && dash)
+            rt->DrawGeometry(geo, cur, 2.0f, dash);
         else
-            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
-        pPathGeometry->Release();
+            rt->DrawGeometry(geo, cur, 2.0f);
+        geo->Release();
     }
-
-    if (pFactory) pFactory->Release();
+    if (f) f->Release();
 }
 
-bool Diamond::HitTest(D2D1_POINT_2F point) {
-    float dx = abs(point.x - m_center.x);
-    float dy = abs(point.y - m_center.y);
-    float cornerDx = abs(m_corner.x - m_center.x);
-    float cornerDy = abs(m_corner.y - m_center.y);
-
-    // 简单的菱形边界测试
-    return (dx / cornerDx + dy / cornerDy) <= 1.0f;
+// HitTest：逆旋转后菱形方程
+bool Diamond::HitTest(D2D1_POINT_2F p) {
+    float co = cosf(-m_angle), sn = sinf(-m_angle);
+    float x = p.x - m_center.x, y = p.y - m_center.y;
+    float lx = x * co - y * sn, ly = x * sn + y * co;
+    return (fabs(lx) / m_radiusX + fabs(ly) / m_radiusY) <= 1.0f + 1e-5f;
 }
 
+// Move
 void Diamond::Move(float dx, float dy) {
     m_center.x += dx;
     m_center.y += dy;
-    m_corner.x += dx;
-    m_corner.y += dy;
 }
 
+// Rotate
 void Diamond::Rotate(float angle) {
-    float s = sinf(angle);
-    float c = cosf(angle);
-
-    // 旋转角点相对于中心
-    float relX = m_corner.x - m_center.x;
-    float relY = m_corner.y - m_center.y;
-
-    float newRelX = relX * c - relY * s;
-    float newRelY = relX * s + relY * c;
-
-    m_corner.x = m_center.x + newRelX;
-    m_corner.y = m_center.y + newRelY;
+    m_angle += angle;
 }
 
+// Scale
 void Diamond::Scale(float scale) {
-    float relX = m_corner.x - m_center.x;
-    float relY = m_corner.y - m_center.y;
-
-    m_corner.x = m_center.x + relX * scale;
-    m_corner.y = m_center.y + relY * scale;
+    m_radiusX *= scale;
+    m_radiusY *= scale;
 }
 
+// 包围盒
+D2D1_RECT_F Diamond::GetBounds() const {
+    D2D1_POINT_2F pts[4];
+    GetDiamondPoints(m_center, m_radiusX, m_radiusY, m_angle, pts);
+    float minX = pts[0].x, maxX = pts[0].x;
+    float minY = pts[0].y, maxY = pts[0].y;
+    for (int i = 1; i < 4; ++i) {
+        minX = min(minX, pts[i].x);
+        maxX = max(maxX, pts[i].x);
+        minY = min(minY, pts[i].y);
+        maxY = max(maxY, pts[i].y);
+    }
+    return D2D1::RectF(minX, minY, maxX, maxY);
+}
+
+// 离散线段
+std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>>
+Diamond::GetIntersectionSegments() const {
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs;
+    D2D1_POINT_2F pts[4];
+    GetDiamondPoints(m_center, m_radiusX, m_radiusY, m_angle, pts);
+    for (int i = 0; i < 4; ++i)
+        segs.push_back(std::make_pair(pts[i], pts[(i + 1) & 3]));
+    return segs;
+}
+
+// 序列化：Diamond center.x center.y radiusX radiusY angle
 std::string Diamond::Serialize() {
     std::ostringstream oss;
     oss << "Diamond " << m_center.x << " " << m_center.y << " "
-        << m_corner.x << " " << m_corner.y;
+        << m_radiusX << " " << m_radiusY << " " << m_angle;
     return oss.str();
 }
 
 void Diamond::Deserialize(const std::string &data) {
     std::istringstream iss(data);
     std::string type;
-    iss >> type >> m_center.x >> m_center.y >> m_corner.x >> m_corner.y;
+    iss >> type >> m_center.x >> m_center.y
+        >> m_radiusX >> m_radiusY >> m_angle;
 }
 
 // Parallelogram 实现
@@ -783,14 +796,14 @@ void Curve::Deserialize(const std::string &data) {
 }
 
 // Polyline 实现
-Polyline::Polyline(const std::vector<D2D1_POINT_2F> &points) :
+Poly::Poly(const std::vector<D2D1_POINT_2F> &points) :
     Shape(ShapeType::POLYLINE), m_points(points) {
 }
 
-void Polyline::Draw(ID2D1RenderTarget *pRenderTarget,
-                    ID2D1SolidColorBrush *pNormalBrush,
-                    ID2D1SolidColorBrush *pSelectedBrush,
-                    ID2D1StrokeStyle *pDashStrokeStyle) {
+void Poly::Draw(ID2D1RenderTarget *pRenderTarget,
+                ID2D1SolidColorBrush *pNormalBrush,
+                ID2D1SolidColorBrush *pSelectedBrush,
+                ID2D1StrokeStyle *pDashStrokeStyle) {
     if (!pRenderTarget || !pNormalBrush || !pSelectedBrush) return;
     if (m_points.size() < 2) return;
 
@@ -819,7 +832,7 @@ void Polyline::Draw(ID2D1RenderTarget *pRenderTarget,
     }
 }
 
-bool Polyline::HitTest(D2D1_POINT_2F point) {
+bool Poly::HitTest(D2D1_POINT_2F point) {
     // 检查是否点击了任何一段线段
     for (size_t i = 1; i < m_points.size(); i++) {
         D2D1_POINT_2F p1 = m_points[i - 1];
@@ -859,14 +872,14 @@ bool Polyline::HitTest(D2D1_POINT_2F point) {
     return false;
 }
 
-void Polyline::Move(float dx, float dy) {
+void Poly::Move(float dx, float dy) {
     for (auto &point : m_points) {
         point.x += dx;
         point.y += dy;
     }
 }
 
-void Polyline::Rotate(float angle) {
+void Poly::Rotate(float angle) {
     // 计算中心点
     D2D1_POINT_2F center = {0, 0};
     for (const auto &point : m_points) {
@@ -894,7 +907,7 @@ void Polyline::Rotate(float angle) {
     }
 }
 
-void Polyline::Scale(float scale) {
+void Poly::Scale(float scale) {
     D2D1_POINT_2F center = {0, 0};
     for (const auto &point : m_points) {
         center.x += point.x;
@@ -909,11 +922,11 @@ void Polyline::Scale(float scale) {
     }
 }
 
-void Polyline::AddPoint(D2D1_POINT_2F point) {
+void Poly::AddPoint(D2D1_POINT_2F point) {
     m_points.push_back(point);
 }
 
-std::string Polyline::Serialize() {
+std::string Poly::Serialize() {
     std::ostringstream oss;
     oss << "Polyline " << m_points.size();
     for (const auto &point : m_points) {
@@ -922,7 +935,7 @@ std::string Polyline::Serialize() {
     return oss.str();
 }
 
-void Polyline::Deserialize(const std::string &data) {
+void Poly::Deserialize(const std::string &data) {
     std::istringstream iss(data);
     std::string type;
     size_t pointCount;

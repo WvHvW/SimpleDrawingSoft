@@ -301,13 +301,13 @@ private:
     D2D1_POINT_2F m_points[3];
 };
 
-// 菱形类
+// 菱形
 class Diamond : public Shape {
 public:
-    Diamond(D2D1_POINT_2F center, D2D1_POINT_2F corner);
+    Diamond(D2D1_POINT_2F center, float radiusX, float radiusY, float angle = 0.f);
 
     void Draw(ID2D1RenderTarget *pRenderTarget,
-              ID2D1SolidColorBrush *pBrush,
+              ID2D1SolidColorBrush *pNormalBrush,
               ID2D1SolidColorBrush *pSelectedBrush,
               ID2D1StrokeStyle *pDashStrokeStyle) override;
 
@@ -316,46 +316,22 @@ public:
     void Rotate(float angle) override;
     void Scale(float scale) override;
 
-    std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
     D2D1_POINT_2F GetCenter() const override {
         return m_center;
     }
+    D2D1_RECT_F GetBounds() const override;
 
-    D2D1_RECT_F GetBounds() const override {
-        float width = std::abs(m_corner.x - m_center.x);
-        float height = std::abs(m_corner.y - m_center.y);
-        return D2D1::RectF(
-            m_center.x - width,
-            m_center.y - height,
-            m_center.x + width,
-            m_center.y + height);
-    }
+    std::string Serialize() override;
+    void Deserialize(const std::string &data) override;
 
-    // 重写离散线段函数
-    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
-        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
-
-        // 计算菱形的四个顶点
-        float dx = std::abs(m_corner.x - m_center.x);
-        float dy = std::abs(m_corner.y - m_center.y);
-
-        D2D1_POINT_2F top = {m_center.x, m_center.y - dy};
-        D2D1_POINT_2F right = {m_center.x + dx, m_center.y};
-        D2D1_POINT_2F bottom = {m_center.x, m_center.y + dy};
-        D2D1_POINT_2F left = {m_center.x - dx, m_center.y};
-
-        segments.push_back({top, right});
-        segments.push_back({right, bottom});
-        segments.push_back({bottom, left});
-        segments.push_back({left, top});
-
-        return segments;
-    }
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>>
+    GetIntersectionSegments() const override;
 
 private:
     D2D1_POINT_2F m_center;
-    D2D1_POINT_2F m_corner;
+    float m_radiusX;
+    float m_radiusY;
+    float m_angle;
 };
 
 // 平行四边形类
@@ -504,9 +480,9 @@ private:
 };
 
 // 多段线类
-class Polyline : public Shape {
+class Poly : public Shape {
 public:
-    Polyline(const std::vector<D2D1_POINT_2F> &points = {});
+    Poly(const std::vector<D2D1_POINT_2F> &points = {});
 
     void Draw(ID2D1RenderTarget *pRenderTarget,
               ID2D1SolidColorBrush *pBrush,
