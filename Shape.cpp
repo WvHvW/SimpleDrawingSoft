@@ -3,6 +3,27 @@
 #include <sstream>
 #include <algorithm>
 
+// 点到线段距离平方，若 < distThresh 则命中
+static bool PointNearSegment(D2D1_POINT_2F p,
+                             D2D1_POINT_2F a,
+                             D2D1_POINT_2F b,
+                             float distThresh = 5.0f) {
+    float dx = b.x - a.x;
+    float dy = b.y - a.y;
+    float len2 = dx * dx + dy * dy;
+    if (len2 == 0.f) // 退化
+        return (p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y)
+               <= distThresh * distThresh;
+
+    float t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    t = max(0.0f, min(1.0f, t)); // 投影裁剪
+
+    float nearX = a.x + t * dx;
+    float nearY = a.y + t * dy;
+    float dist2 = (p.x - nearX) * (p.x - nearX) + (p.y - nearY) * (p.y - nearY);
+    return dist2 <= distThresh * distThresh;
+}
+
 // Line 实现
 Line::Line(D2D1_POINT_2F start, D2D1_POINT_2F end) :
     Shape(ShapeType::LINE), m_start(start), m_end(end) {
@@ -125,8 +146,8 @@ void Circle::Draw(ID2D1RenderTarget *pRenderTarget,
 bool Circle::HitTest(D2D1_POINT_2F point) {
     float dx = point.x - m_center.x;
     float dy = point.y - m_center.y;
-    float distance = sqrtf(dx * dx + dy * dy);
-    return abs(distance - m_radius) < 10.0f; // 10像素以内算点击
+    float d = sqrtf(dx * dx + dy * dy);
+    return fabs(d - m_radius) <= 5.0f; // 5 px 线宽
 }
 
 void Circle::Move(float dx, float dy) {
@@ -195,18 +216,11 @@ void Rect::Draw(ID2D1RenderTarget *pRenderTarget,
 }
 
 bool Rect::HitTest(D2D1_POINT_2F point) {
-    // 使用射线法检测点是否在多边形内
-    int crossings = 0;
-    for (int i = 0; i < 4; i++) {
-        int j = (i + 1) % 4;
-        if (((m_points[i].y <= point.y) && (m_points[j].y > point.y)) || ((m_points[j].y <= point.y) && (m_points[i].y > point.y))) {
-            float vt = (point.y - m_points[i].y) / (m_points[j].y - m_points[i].y);
-            if (point.x < m_points[i].x + vt * (m_points[j].x - m_points[i].x)) {
-                crossings++;
-            }
-        }
-    }
-    return (crossings % 2) == 1;
+    // 四条边依次判断
+    for (int i = 0; i < 4; ++i)
+        if (PointNearSegment(point, m_points[i], m_points[(i + 1) & 3]))
+            return true;
+    return false;
 }
 
 void Rect::Move(float dx, float dy) {
@@ -304,12 +318,10 @@ void Triangle::Draw(ID2D1RenderTarget *pRenderTarget,
 }
 
 bool Triangle::HitTest(D2D1_POINT_2F point) {
-    // 简单的边界框测试
-    float minX = min(min(m_points[0].x, m_points[1].x), m_points[2].x);
-    float maxX = max(max(m_points[0].x, m_points[1].x), m_points[2].x);
-    float minY = min(min(m_points[0].y, m_points[1].y), m_points[2].y);
-    float maxY = max(max(m_points[0].y, m_points[1].y), m_points[2].y);
-    return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+    for (int i = 0; i < 3; ++i)
+        if (PointNearSegment(point, m_points[i], m_points[(i + 1) % 3]))
+            return true;
+    return false;
 }
 
 void Triangle::Move(float dx, float dy) {
@@ -422,10 +434,12 @@ void Diamond::Draw(ID2D1RenderTarget *rt,
 
 // HitTest：逆旋转后菱形方程
 bool Diamond::HitTest(D2D1_POINT_2F p) {
-    float co = cosf(-m_angle), sn = sinf(-m_angle);
-    float x = p.x - m_center.x, y = p.y - m_center.y;
-    float lx = x * co - y * sn, ly = x * sn + y * co;
-    return (fabs(lx) / m_radiusX + fabs(ly) / m_radiusY) <= 1.0f + 1e-5f;
+    D2D1_POINT_2F pts[4];
+    GetDiamondPoints(m_center, m_radiusX, m_radiusY, m_angle, pts);
+    for (int i = 0; i < 4; ++i)
+        if (PointNearSegment(p, pts[i], pts[(i + 1) & 3]))
+            return true;
+    return false;
 }
 
 // Move
@@ -532,14 +546,10 @@ void Parallelogram::Draw(ID2D1RenderTarget *pRenderTarget,
 }
 
 bool Parallelogram::HitTest(D2D1_POINT_2F point) {
-    // 简单的边界框测试
-
-    float minX = min(min(m_points[0].x, m_points[1].x), min(m_points[2].x, m_points[3].x));
-    float maxX = max(max(m_points[0].x, m_points[1].x), max(m_points[2].x, m_points[3].x));
-    float minY = min(min(m_points[0].y, m_points[1].y), min(m_points[2].y, m_points[3].y));
-    float maxY = max(max(m_points[0].y, m_points[1].y), max(m_points[2].y, m_points[3].y));
-
-    return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+    for (int i = 0; i < 4; ++i)
+        if (PointNearSegment(point, m_points[i], m_points[(i + 1) & 3]))
+            return true;
+    return false;
 }
 
 void Parallelogram::Move(float dx, float dy) {
@@ -723,7 +733,7 @@ bool Curve::HitTest(D2D1_POINT_2F point) {
 
         float dx = point.x - xx;
         float dy = point.y - yy;
-        if ((dx * dx + dy * dy) < 25.0f) { // 5像素以内算点击
+        if ((dx * dx + dy * dy) < 25.0f) {
             return true;
         }
     }
