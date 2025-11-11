@@ -67,13 +67,153 @@ std::vector<D2D1_POINT_2F> circleCircle(D2D1_POINT_2F c1, float r1,
     return out;
 }
 
+// --------------- 贝塞尔曲线工具 ---------------
+// 计算三次贝塞尔在 t 处的点
+D2D1_POINT_2F BezierPoint(const D2D1_POINT_2F p[4], float t) {
+    float u = 1.0f - t;
+    float uu = u * u, tt = t * t;
+    float uuu = uu * u, ttt = tt * t;
+    float uut = uu * t, utt = u * tt;
+
+    return D2D1::Point2F(
+        uuu * p[0].x + 3 * uut * p[1].x + 3 * utt * p[2].x + ttt * p[3].x,
+        uuu * p[0].y + 3 * uut * p[1].y + 3 * utt * p[2].y + ttt * p[3].y);
+}
+
+// 三阶 Bézier 的 de Casteljau 一剖二
+void SplitBezier(const D2D1_POINT_2F p[4],
+                 D2D1_POINT_2F left[4], D2D1_POINT_2F right[4]) {
+    left[0] = p[0];
+    right[3] = p[3];
+
+    D2D1_POINT_2F q1 = D2D1::Point2F((p[0].x + p[1].x) * 0.5f, (p[0].y + p[1].y) * 0.5f);
+    D2D1_POINT_2F q2 = D2D1::Point2F((p[1].x + p[2].x) * 0.5f, (p[1].y + p[2].y) * 0.5f);
+    D2D1_POINT_2F q3 = D2D1::Point2F((p[2].x + p[3].x) * 0.5f, (p[2].y + p[3].y) * 0.5f);
+
+    D2D1_POINT_2F r2 = D2D1::Point2F((q1.x + q2.x) * 0.5f, (q1.y + q2.y) * 0.5f);
+    D2D1_POINT_2F r3 = D2D1::Point2F((q2.x + q3.x) * 0.5f, (q2.y + q3.y) * 0.5f);
+
+    D2D1_POINT_2F mid = D2D1::Point2F((r2.x + r3.x) * 0.5f, (r2.y + r3.y) * 0.5f);
+
+    left[1] = q1;
+    left[2] = r2;
+    left[3] = mid;
+    right[0] = mid;
+    right[1] = r3;
+    right[2] = q3;
+}
+
+// 平直度检测：用 chord-height 误差
+bool IsFlatEnough(const D2D1_POINT_2F p[4], float tol) {
+    D2D1_POINT_2F d1 = D2D1::Point2F(p[1].x - p[0].x, p[1].y - p[0].y);
+    D2D1_POINT_2F d2 = D2D1::Point2F(p[2].x - p[0].x, p[2].y - p[0].y);
+    D2D1_POINT_2F d3 = D2D1::Point2F(p[3].x - p[0].x, p[3].y - p[0].y);
+
+    // 向量叉积 = 2*三角形面积
+    float cross1 = d1.x * d2.y - d1.y * d2.x;
+    float cross2 = d2.x * d3.y - d2.y * d3.x;
+    float chord2 = d3.x * d3.x + d3.y * d3.y;
+    if (chord2 < 1e-8f) return true; // 退化
+    float err = (fabs(cross1) + fabs(cross2)) / sqrtf(chord2);
+    return err <= tol;
+}
+
+// 细分直到“足够直”，返回线段序列
+// 递归细分，tol 建议 0.25~0.5 像素
+static void AdaptiveFlatten(const D2D1_POINT_2F p[4],
+                            float tol,
+                            std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> &out) {
+    if (IsFlatEnough(p, tol)) {
+        out.emplace_back(p[0], p[3]);
+        return;
+    }
+    D2D1_POINT_2F L[4], R[4];
+    SplitBezier(p, L, R);
+    AdaptiveFlatten(L, tol, out);
+    AdaptiveFlatten(R, tol, out);
+}
+
+std::vector<D2D1_POINT_2F> curveLine(const std::vector<D2D1_POINT_2F> &curve,
+                                     D2D1_POINT_2F a, D2D1_POINT_2F b) {
+    D2D1_POINT_2F p[4] = {curve[0], curve[1], curve[2], curve[3]};
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs;
+    AdaptiveFlatten(p, 0.3f, segs);
+
+    std::vector<D2D1_POINT_2F> out;
+    for (const auto &seg : segs) {
+        auto pts = lineLine(seg.first, seg.second, a, b);
+        out.insert(out.end(), pts.begin(), pts.end());
+    }
+    return out;
+}
+
+std::vector<D2D1_POINT_2F> curveCircle(const std::vector<D2D1_POINT_2F> &curve,
+                                       D2D1_POINT_2F ctr, float r) {
+    D2D1_POINT_2F p[4] = {curve[0], curve[1], curve[2], curve[3]};
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs;
+    AdaptiveFlatten(p, 0.3f, segs);
+
+    std::vector<D2D1_POINT_2F> out;
+    for (const auto &seg : segs) {
+        auto pts = lineCircle(seg.first, seg.second, ctr, r);
+        out.insert(out.end(), pts.begin(), pts.end());
+    }
+    return out;
+}
+// 简易包围盒
+struct Box {
+    float minX, minY, maxX, maxY;
+};
+Box GetBox(const D2D1_POINT_2F p[4]) {
+    Box b{p[0].x, p[0].y, p[0].x, p[0].y};
+    for (int i = 1; i < 4; ++i) {
+        b.minX = min(b.minX, p[i].x);
+        b.maxX = max(b.maxX, p[i].x);
+        b.minY = min(b.minY, p[i].y);
+        b.maxY = max(b.maxY, p[i].y);
+    }
+    return b;
+}
+bool BoxIntersect(const Box &a, const Box &b) {
+    return a.maxX >= b.minX && b.maxX >= a.minX && a.maxY >= b.minY && b.maxY >= a.minY;
+}
+
+// 递归区间剔除
+void CurveCurveRecursive(const D2D1_POINT_2F A[4], const D2D1_POINT_2F B[4],
+                         float tol,
+                         std::vector<D2D1_POINT_2F> &out) {
+    Box bA = GetBox(A), bB = GetBox(B);
+    if (!BoxIntersect(bA, bB)) return;
+
+    // 当两条都足够扁，当成直线段求交
+    if (IsFlatEnough(A, tol) && IsFlatEnough(B, tol)) {
+        auto pts = lineLine(A[0], A[3], B[0], B[3]);
+        out.insert(out.end(), pts.begin(), pts.end());
+        return;
+    }
+    // 否则把更“弯”的那条劈一半
+    D2D1_POINT_2F AL[4], AR[4], BL[4], BR[4];
+    if (!IsFlatEnough(A, tol)) {
+        SplitBezier(A, AL, AR);
+        SplitBezier(B, BL, BR);
+    } else {
+        SplitBezier(B, BL, BR);
+        std::copy(A, A + 4, AL);
+        std::copy(A, A + 4, AR);
+    }
+
+    CurveCurveRecursive(AL, BL, tol, out);
+    CurveCurveRecursive(AL, BR, tol, out);
+    CurveCurveRecursive(AR, BL, tol, out);
+    CurveCurveRecursive(AR, BR, tol, out);
+}
+
 template <class T>
 std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> edges(const T &poly) {
     return poly.GetIntersectionSegments();
 }
-} // namespace
 
-// ========================= 以下为无递归实现 =========================
+} // namespace
 
 IntersectionManager &IntersectionManager::getInstance() {
     static IntersectionManager inst;
@@ -89,7 +229,7 @@ bool IntersectionManager::selectShape(std::shared_ptr<Shape> shape) {
         shape2 = shape;
         return true;
     }
-    shape2 = shape; // 覆盖
+    shape2 = shape;
     return true;
 }
 
@@ -112,7 +252,6 @@ const std::vector<D2D1_POINT_2F> &IntersectionManager::getIntersectionPoints() c
     return intersectionPoints;
 }
 
-// 无递归：所有顺序都写成正向几何
 std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
     intersectionPoints.clear();
     if (!shape1 || !shape2) return intersectionPoints;
@@ -581,7 +720,142 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
             }
     }
 
-    // 去重
+    // 曲线 vs 直线
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::LINE) {
+        Curve &cv = static_cast<Curve &>(a);
+        Line &l = static_cast<Line &>(b);
+        auto pts = cv.GetPoints(); // 返回 4 个控制点
+        intersectionPoints = curveLine(pts, l.GetStart(), l.GetEnd());
+    } else if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::CURVE) {
+        Line &l = static_cast<Line &>(a);
+        Curve &cv = static_cast<Curve &>(b);
+        auto pts = cv.GetPoints();
+        intersectionPoints = curveLine(pts, l.GetStart(), l.GetEnd());
+    }
+    // 曲线 vs 圆
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::CIRCLE) {
+        Curve &cv = static_cast<Curve &>(a);
+        Circle &c = static_cast<Circle &>(b);
+        auto pts = cv.GetPoints();
+        intersectionPoints = curveCircle(pts, c.GetCenter(), c.GetRadius());
+    } else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::CURVE) {
+        Circle &c = static_cast<Circle &>(a);
+        Curve &cv = static_cast<Curve &>(b);
+        auto pts = cv.GetPoints();
+        intersectionPoints = curveCircle(pts, c.GetCenter(), c.GetRadius());
+    }
+    // 曲线 vs 矩形
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::RECTANGLE) {
+        Curve &cv = static_cast<Curve &>(a);
+        Rect &r = static_cast<Rect &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(r);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    } else if (a.GetType() == ShapeType::RECTANGLE && b.GetType() == ShapeType::CURVE) {
+        Rect &r = static_cast<Rect &>(a);
+        Curve &cv = static_cast<Curve &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(r);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    }
+    // 曲线 vs 三角形
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::TRIANGLE) {
+        Curve &cv = static_cast<Curve &>(a);
+        Triangle &t = static_cast<Triangle &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(t);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    } else if (a.GetType() == ShapeType::TRIANGLE && b.GetType() == ShapeType::CURVE) {
+        Triangle &t = static_cast<Triangle &>(a);
+        Curve &cv = static_cast<Curve &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(t);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    }
+    // 曲线 vs 菱形
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::DIAMOND) {
+        Curve &cv = static_cast<Curve &>(a);
+        Diamond &d = static_cast<Diamond &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(d);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    } else if (a.GetType() == ShapeType::DIAMOND && b.GetType() == ShapeType::CURVE) {
+        Diamond &d = static_cast<Diamond &>(a);
+        Curve &cv = static_cast<Curve &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(d);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    }
+    // 曲线 vs 平行四边形
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::PARALLELOGRAM) {
+        Curve &cv = static_cast<Curve &>(a);
+        Parallelogram &p = static_cast<Parallelogram &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(p);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    } else if (a.GetType() == ShapeType::PARALLELOGRAM && b.GetType() == ShapeType::CURVE) {
+        Parallelogram &p = static_cast<Parallelogram &>(a);
+        Curve &cv = static_cast<Curve &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(p);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    }
+    // 曲线 vs 多段线
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::POLYLINE) {
+        Curve &cv = static_cast<Curve &>(a);
+        Poly &p = static_cast<Poly &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(p);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    } else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::CURVE) {
+        Poly &p = static_cast<Poly &>(a);
+        Curve &cv = static_cast<Curve &>(b);
+        auto pts = cv.GetPoints();
+        auto segs = edges(p);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            auto tmp = curveLine(pts, segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), tmp.begin(), tmp.end());
+        }
+    }
+    // 曲线 vs 曲线
+    else if (a.GetType() == ShapeType::CURVE && b.GetType() == ShapeType::CURVE) {
+        Curve &cv1 = static_cast<Curve &>(a);
+        Curve &cv2 = static_cast<Curve &>(b);
+        auto pts1 = cv1.GetPoints();
+        auto pts2 = cv2.GetPoints();
+        D2D1_POINT_2F bez1[4] = {pts1[0], pts1[1], pts1[2], pts1[3]};
+        D2D1_POINT_2F bez2[4] = {pts2[0], pts2[1], pts2[2], pts2[3]};
+        CurveCurveRecursive(bez1, bez2, 0.3f, intersectionPoints);
+    }
+
+    // ---------------- 去重 ----------------
     std::vector<D2D1_POINT_2F>::iterator it =
         std::unique(intersectionPoints.begin(), intersectionPoints.end(),
                     [](const D2D1_POINT_2F &p, const D2D1_POINT_2F &q) {

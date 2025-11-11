@@ -622,6 +622,21 @@ Curve::Curve(D2D1_POINT_2F start, D2D1_POINT_2F control1, D2D1_POINT_2F control2
     m_points.push_back(end);
 }
 
+static D2D1_POINT_2F EvaluateCubicBezier(const D2D1_POINT_2F &p0,
+                                         const D2D1_POINT_2F &p1,
+                                         const D2D1_POINT_2F &p2,
+                                         const D2D1_POINT_2F &p3,
+                                         float t) {
+    float mt = 1.0f - t;
+    float mt2 = mt * mt;
+    float t2 = t * t;
+
+    D2D1_POINT_2F r;
+    r.x = mt2 * mt * p0.x + 3.0f * mt2 * t * p1.x + 3.0f * mt * t2 * p2.x + t2 * t * p3.x;
+    r.y = mt2 * mt * p0.y + 3.0f * mt2 * t * p1.y + 3.0f * mt * t2 * p2.y + t2 * t * p3.y;
+    return r;
+}
+
 void Curve::Draw(ID2D1RenderTarget *pRenderTarget,
                  ID2D1SolidColorBrush *pNormalBrush,
                  ID2D1SolidColorBrush *pSelectedBrush,
@@ -631,16 +646,27 @@ void Curve::Draw(ID2D1RenderTarget *pRenderTarget,
 
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pNormalBrush;
 
-    // 创建贝塞尔曲线路径
-    ID2D1PathGeometry *pPathGeometry = nullptr;
     ID2D1Factory *pFactory = nullptr;
     pRenderTarget->GetFactory(&pFactory);
 
+    ID2D1PathGeometry *pPathGeometry = nullptr;
     if (SUCCEEDED(pFactory->CreatePathGeometry(&pPathGeometry))) {
         ID2D1GeometrySink *pSink = nullptr;
         if (SUCCEEDED(pPathGeometry->Open(&pSink))) {
-            pSink->BeginFigure(m_points[0], D2D1_FIGURE_BEGIN_HOLLOW);
-            pSink->AddBezier(D2D1::BezierSegment(m_points[1], m_points[2], m_points[3]));
+            // 手工离散 Bézier
+            const D2D1_POINT_2F &p0 = m_points[0];
+            const D2D1_POINT_2F &p1 = m_points[1];
+            const D2D1_POINT_2F &p2 = m_points[2];
+            const D2D1_POINT_2F &p3 = m_points[3];
+
+            pSink->BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
+
+            for (int i = 1; i <= CURVE_FLATTEN_SEGS; ++i) {
+                float t = float(i) / CURVE_FLATTEN_SEGS;
+                D2D1_POINT_2F pt = EvaluateCubicBezier(p0, p1, p2, p3, t);
+                pSink->AddLine(pt);
+            }
+
             pSink->EndFigure(D2D1_FIGURE_END_OPEN);
             pSink->Close();
             pSink->Release();
@@ -661,7 +687,7 @@ bool Curve::HitTest(D2D1_POINT_2F point) {
     if (m_points.size() != 4) return false;
 
     // 将贝塞尔曲线细分为多个小线段，然后检测点是否靠近这些线段
-    const int segments = 20; // 将曲线分为20段
+    const int segments = CURVE_FLATTEN_SEGS;
     for (int i = 0; i < segments; i++) {
         float t1 = static_cast<float>(i) / segments;
         float t2 = static_cast<float>(i + 1) / segments;
@@ -791,6 +817,18 @@ void Curve::Deserialize(const std::string &data) {
         iss >> point.x >> point.y;
         m_points.push_back(point);
     }
+}
+
+std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> Curve::GetIntersectionSegments() const {
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs;
+    const int n = CURVE_FLATTEN_SEGS;
+    for (int i = 0; i < n; ++i) {
+        float t1 = float(i) / n;
+        float t2 = float(i + 1) / n;
+        segs.emplace_back(CalculateBezierPoint(t1),
+                          CalculateBezierPoint(t2));
+    }
+    return segs;
 }
 
 // Polyline 实现

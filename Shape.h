@@ -447,33 +447,12 @@ public:
         return D2D1::RectF(minX, minY, maxX, maxY);
     }
 
-    // 重写离散线段函数
-    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
-        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
-
-        if (m_points.size() != 4) {
-            // 如果不是贝塞尔曲线，使用边界框
-            return Shape::GetIntersectionSegments();
-        }
-
-        // 将贝塞尔曲线离散为多个线段
-        const int segmentsCount = 20;
-        std::vector<D2D1_POINT_2F> curvePoints;
-
-        for (int i = 0; i <= segmentsCount; ++i) {
-            float t = static_cast<float>(i) / segmentsCount;
-            curvePoints.push_back(CalculateBezierPoint(t));
-        }
-
-        for (size_t i = 1; i < curvePoints.size(); ++i) {
-            segments.push_back({curvePoints[i - 1], curvePoints[i]});
-        }
-
-        return segments;
-    }
+    // 离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override;
 
 private:
     std::vector<D2D1_POINT_2F> m_points;
+    static const int CURVE_FLATTEN_SEGS = 32; // 32 段 ≈ 0.4 px 误差
 
     // 计算贝塞尔曲线在参数t处的点
     D2D1_POINT_2F CalculateBezierPoint(float t) const;
