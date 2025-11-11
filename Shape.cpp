@@ -372,7 +372,6 @@ void Triangle::Deserialize(const std::string &data) {
 }
 
 // Diamond 实现
-// 工具：实时计算旋转后 4 顶点
 static void GetDiamondPoints(const D2D1_POINT_2F &c,
                              float rx, float ry, float ang,
                              D2D1_POINT_2F pts[4]) {
@@ -462,8 +461,7 @@ D2D1_RECT_F Diamond::GetBounds() const {
 }
 
 // 离散线段
-std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>>
-Diamond::GetIntersectionSegments() const {
+std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> Diamond::GetIntersectionSegments() const {
     std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs;
     D2D1_POINT_2F pts[4];
     GetDiamondPoints(m_center, m_radiusX, m_radiusY, m_angle, pts);

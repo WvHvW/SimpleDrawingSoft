@@ -5,7 +5,6 @@
 namespace {
 const float EPS = 1e-5f;
 
-// 点是否在线段上（含端点）
 bool pointOnSegment(D2D1_POINT_2F p, D2D1_POINT_2F a, D2D1_POINT_2F b) {
     float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
     if (std::fabs(cross) > EPS) return false;
@@ -16,23 +15,21 @@ bool pointOnSegment(D2D1_POINT_2F p, D2D1_POINT_2F a, D2D1_POINT_2F b) {
     return true;
 }
 
-// 直线-直线（线段）交点
 std::vector<D2D1_POINT_2F> lineLine(D2D1_POINT_2F p1, D2D1_POINT_2F p2,
                                     D2D1_POINT_2F q1, D2D1_POINT_2F q2) {
     std::vector<D2D1_POINT_2F> out;
     float dx1 = p2.x - p1.x, dy1 = p2.y - p1.y;
     float dx2 = q2.x - q1.x, dy2 = q2.y - q1.y;
     float den = dx1 * dy2 - dy1 * dx2;
-    if (std::fabs(den) < EPS) return out; // 平行
+    if (std::fabs(den) < EPS) return out;
     float ua = ((q1.x - p1.x) * dy2 - (q1.y - p1.y) * dx2) / den;
-    if (ua < 0.f || ua > 1.f) return out; // 在线段外
+    if (ua < 0.f || ua > 1.f) return out;
     float ub = ((q1.x - p1.x) * dy1 - (q1.y - p1.y) * dx1) / den;
     if (ub < 0.f || ub > 1.f) return out;
     out.push_back(D2D1::Point2F(p1.x + ua * dx1, p1.y + ua * dy1));
     return out;
 }
 
-// 直线-圆交点
 std::vector<D2D1_POINT_2F> lineCircle(D2D1_POINT_2F a, D2D1_POINT_2F b,
                                       D2D1_POINT_2F ctr, float r) {
     std::vector<D2D1_POINT_2F> out;
@@ -53,7 +50,6 @@ std::vector<D2D1_POINT_2F> lineCircle(D2D1_POINT_2F a, D2D1_POINT_2F b,
     return out;
 }
 
-// 圆-圆交点
 std::vector<D2D1_POINT_2F> circleCircle(D2D1_POINT_2F c1, float r1,
                                         D2D1_POINT_2F c2, float r2) {
     std::vector<D2D1_POINT_2F> out;
@@ -71,14 +67,14 @@ std::vector<D2D1_POINT_2F> circleCircle(D2D1_POINT_2F c1, float r1,
     return out;
 }
 
-// 获取多边形边集（矩形/三角形/菱形/平行四边形）
 template <class T>
 std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> edges(const T &poly) {
     return poly.GetIntersectionSegments();
 }
 } // namespace
 
-// 单例
+// ========================= 以下为无递归实现 =========================
+
 IntersectionManager &IntersectionManager::getInstance() {
     static IntersectionManager inst;
     return inst;
@@ -93,7 +89,7 @@ bool IntersectionManager::selectShape(std::shared_ptr<Shape> shape) {
         shape2 = shape;
         return true;
     }
-    shape2 = shape; // 覆盖最后一个
+    shape2 = shape; // 覆盖
     return true;
 }
 
@@ -116,7 +112,7 @@ const std::vector<D2D1_POINT_2F> &IntersectionManager::getIntersectionPoints() c
     return intersectionPoints;
 }
 
-// 真正几何级实现（C++11 语法）
+// 无递归：所有顺序都写成正向几何
 std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
     intersectionPoints.clear();
     if (!shape1 || !shape2) return intersectionPoints;
@@ -128,27 +124,23 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
     if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::LINE) {
         Line &l1 = static_cast<Line &>(a);
         Line &l2 = static_cast<Line &>(b);
-        intersectionPoints = lineLine(l1.GetStart(), l1.GetEnd(),
-                                      l2.GetStart(), l2.GetEnd());
+        intersectionPoints = lineLine(l1.GetStart(), l1.GetEnd(), l2.GetStart(), l2.GetEnd());
     }
     // 直线 vs 圆
     else if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::CIRCLE) {
         Line &l = static_cast<Line &>(a);
         Circle &c = static_cast<Circle &>(b);
-        intersectionPoints = lineCircle(l.GetStart(), l.GetEnd(),
-                                        c.GetCenter(), c.GetRadius());
+        intersectionPoints = lineCircle(l.GetStart(), l.GetEnd(), c.GetCenter(), c.GetRadius());
     } else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::LINE) {
         Circle &c = static_cast<Circle &>(a);
         Line &l = static_cast<Line &>(b);
-        intersectionPoints = lineCircle(l.GetStart(), l.GetEnd(),
-                                        c.GetCenter(), c.GetRadius());
+        intersectionPoints = lineCircle(l.GetStart(), l.GetEnd(), c.GetCenter(), c.GetRadius());
     }
     // 圆 vs 圆
     else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::CIRCLE) {
         Circle &c1 = static_cast<Circle &>(a);
         Circle &c2 = static_cast<Circle &>(b);
-        intersectionPoints = circleCircle(c1.GetCenter(), c1.GetRadius(),
-                                          c2.GetCenter(), c2.GetRadius());
+        intersectionPoints = circleCircle(c1.GetCenter(), c1.GetRadius(), c2.GetCenter(), c2.GetRadius());
     }
     // 直线 vs 矩形
     else if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::RECTANGLE) {
@@ -156,12 +148,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Rect &r = static_cast<Rect &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs = edges(r);
         for (size_t i = 0; i < segs.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineLine(l.GetStart(), l.GetEnd(), segs[i].first, segs[i].second);
+            std::vector<D2D1_POINT_2F> pts = lineLine(l.GetStart(), l.GetEnd(), segs[i].first, segs[i].second);
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::RECTANGLE && b.GetType() == ShapeType::LINE) {
-        return calculateIntersectionImpl(); // 交换再算
+        Rect &r = static_cast<Rect &>(a);
+        Line &l = static_cast<Line &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs = edges(r);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineLine(l.GetStart(), l.GetEnd(), segs[i].first, segs[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 圆 vs 矩形
     else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::RECTANGLE) {
@@ -169,12 +166,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Rect &r = static_cast<Rect &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs = edges(r);
         for (size_t i = 0; i < segs.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineCircle(segs[i].first, segs[i].second, c.GetCenter(), c.GetRadius());
+            std::vector<D2D1_POINT_2F> pts = lineCircle(segs[i].first, segs[i].second, c.GetCenter(), c.GetRadius());
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::RECTANGLE && b.GetType() == ShapeType::CIRCLE) {
-        return calculateIntersectionImpl(); // 交换
+        Rect &r = static_cast<Rect &>(a);
+        Circle &c = static_cast<Circle &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs = edges(r);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineCircle(segs[i].first, segs[i].second, c.GetCenter(), c.GetRadius());
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 矩形 vs 矩形
     else if (a.GetType() == ShapeType::RECTANGLE && b.GetType() == ShapeType::RECTANGLE) {
@@ -184,8 +186,7 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(r2);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     }
@@ -195,12 +196,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Line &l = static_cast<Line &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(t);
         for (size_t i = 0; i < s.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineLine(s[i].first, s[i].second, l.GetStart(), l.GetEnd());
+            std::vector<D2D1_POINT_2F> pts = lineLine(s[i].first, s[i].second, l.GetStart(), l.GetEnd());
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::TRIANGLE) {
-        return calculateIntersectionImpl(); // 交换
+        Line &l = static_cast<Line &>(a);
+        Triangle &t = static_cast<Triangle &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(t);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineLine(l.GetStart(), l.GetEnd(), s[i].first, s[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 圆 vs 三角形
     else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::TRIANGLE) {
@@ -208,12 +214,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Triangle &t = static_cast<Triangle &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(t);
         for (size_t i = 0; i < s.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::TRIANGLE && b.GetType() == ShapeType::CIRCLE) {
-        return calculateIntersectionImpl(); // 交换
+        Triangle &t = static_cast<Triangle &>(a);
+        Circle &c = static_cast<Circle &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(t);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 三角形 vs 三角形
     else if (a.GetType() == ShapeType::TRIANGLE && b.GetType() == ShapeType::TRIANGLE) {
@@ -223,8 +234,7 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(t2);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     }
@@ -234,12 +244,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Line &l = static_cast<Line &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(d);
         for (size_t i = 0; i < s.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineLine(s[i].first, s[i].second, l.GetStart(), l.GetEnd());
+            std::vector<D2D1_POINT_2F> pts = lineLine(s[i].first, s[i].second, l.GetStart(), l.GetEnd());
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::DIAMOND) {
-        return calculateIntersectionImpl(); // 交换
+        Line &l = static_cast<Line &>(a);
+        Diamond &d = static_cast<Diamond &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(d);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineLine(l.GetStart(), l.GetEnd(), s[i].first, s[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 菱形 vs 圆
     else if (a.GetType() == ShapeType::DIAMOND && b.GetType() == ShapeType::CIRCLE) {
@@ -247,12 +262,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Circle &c = static_cast<Circle &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(d);
         for (size_t i = 0; i < s.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::DIAMOND) {
-        return calculateIntersectionImpl(); // 交换
+        Circle &c = static_cast<Circle &>(a);
+        Diamond &d = static_cast<Diamond &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(d);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 菱形 vs 矩形
     else if (a.GetType() == ShapeType::DIAMOND && b.GetType() == ShapeType::RECTANGLE) {
@@ -262,12 +282,19 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(r);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     } else if (a.GetType() == ShapeType::RECTANGLE && b.GetType() == ShapeType::DIAMOND) {
-        return calculateIntersectionImpl(); // 交换
+        Rect &r = static_cast<Rect &>(a);
+        Diamond &d = static_cast<Diamond &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(r);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(d);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
     }
     // 菱形 vs 三角形
     else if (a.GetType() == ShapeType::DIAMOND && b.GetType() == ShapeType::TRIANGLE) {
@@ -277,12 +304,19 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(t);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     } else if (a.GetType() == ShapeType::TRIANGLE && b.GetType() == ShapeType::DIAMOND) {
-        return calculateIntersectionImpl(); // 交换
+        Triangle &t = static_cast<Triangle &>(a);
+        Diamond &d = static_cast<Diamond &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(t);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(d);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
     }
     // 菱形 vs 菱形
     else if (a.GetType() == ShapeType::DIAMOND && b.GetType() == ShapeType::DIAMOND) {
@@ -292,8 +326,7 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(d2);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     }
@@ -303,12 +336,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Line &l = static_cast<Line &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
         for (size_t i = 0; i < s.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineLine(s[i].first, s[i].second, l.GetStart(), l.GetEnd());
+            std::vector<D2D1_POINT_2F> pts = lineLine(s[i].first, s[i].second, l.GetStart(), l.GetEnd());
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::PARALLELOGRAM) {
-        return calculateIntersectionImpl(); // 交换
+        Line &l = static_cast<Line &>(a);
+        Parallelogram &p = static_cast<Parallelogram &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineLine(l.GetStart(), l.GetEnd(), s[i].first, s[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 平行四边形 vs 圆
     else if (a.GetType() == ShapeType::PARALLELOGRAM && b.GetType() == ShapeType::CIRCLE) {
@@ -316,12 +354,17 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         Circle &c = static_cast<Circle &>(b);
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
         for (size_t i = 0; i < s.size(); ++i) {
-            std::vector<D2D1_POINT_2F> pts =
-                lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
             intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
         }
     } else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::PARALLELOGRAM) {
-        return calculateIntersectionImpl(); // 交换
+        Circle &c = static_cast<Circle &>(a);
+        Parallelogram &p = static_cast<Parallelogram &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
     }
     // 平行四边形 vs 矩形
     else if (a.GetType() == ShapeType::PARALLELOGRAM && b.GetType() == ShapeType::RECTANGLE) {
@@ -331,12 +374,19 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(r);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     } else if (a.GetType() == ShapeType::RECTANGLE && b.GetType() == ShapeType::PARALLELOGRAM) {
-        return calculateIntersectionImpl(); // 交换
+        Rect &r = static_cast<Rect &>(a);
+        Parallelogram &p = static_cast<Parallelogram &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(r);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
     }
     // 平行四边形 vs 三角形
     else if (a.GetType() == ShapeType::PARALLELOGRAM && b.GetType() == ShapeType::TRIANGLE) {
@@ -346,12 +396,19 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(t);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     } else if (a.GetType() == ShapeType::TRIANGLE && b.GetType() == ShapeType::PARALLELOGRAM) {
-        return calculateIntersectionImpl(); // 交换
+        Triangle &t = static_cast<Triangle &>(a);
+        Parallelogram &p = static_cast<Parallelogram &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(t);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
     }
     // 平行四边形 vs 菱形
     else if (a.GetType() == ShapeType::PARALLELOGRAM && b.GetType() == ShapeType::DIAMOND) {
@@ -361,12 +418,19 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(d);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     } else if (a.GetType() == ShapeType::DIAMOND && b.GetType() == ShapeType::PARALLELOGRAM) {
-        return calculateIntersectionImpl(); // 交换
+        Diamond &d = static_cast<Diamond &>(a);
+        Parallelogram &p = static_cast<Parallelogram &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(d);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
     }
     // 平行四边形 vs 平行四边形
     else if (a.GetType() == ShapeType::PARALLELOGRAM && b.GetType() == ShapeType::PARALLELOGRAM) {
@@ -376,8 +440,143 @@ std::vector<D2D1_POINT_2F> IntersectionManager::calculateIntersectionImpl() {
         std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p2);
         for (size_t i = 0; i < s1.size(); ++i)
             for (size_t j = 0; j < s2.size(); ++j) {
-                std::vector<D2D1_POINT_2F> pts =
-                    lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    }
+    // 多段线 vs 直线
+    else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::LINE) {
+        Poly &p = static_cast<Poly &>(a);
+        Line &l = static_cast<Line &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineLine(s[i].first, s[i].second, l.GetStart(), l.GetEnd());
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
+    } else if (a.GetType() == ShapeType::LINE && b.GetType() == ShapeType::POLYLINE) {
+        Line &l = static_cast<Line &>(a);
+        Poly &p = static_cast<Poly &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineLine(l.GetStart(), l.GetEnd(), s[i].first, s[i].second);
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
+    }
+    // 多段线 vs 圆
+    else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::CIRCLE) {
+        Poly &p = static_cast<Poly &>(a);
+        Circle &c = static_cast<Circle &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
+    } else if (a.GetType() == ShapeType::CIRCLE && b.GetType() == ShapeType::POLYLINE) {
+        Circle &c = static_cast<Circle &>(a);
+        Poly &p = static_cast<Poly &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s = edges(p);
+        for (size_t i = 0; i < s.size(); ++i) {
+            std::vector<D2D1_POINT_2F> pts = lineCircle(s[i].first, s[i].second, c.GetCenter(), c.GetRadius());
+            intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+        }
+    }
+    // 多段线 vs 矩形
+    else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::RECTANGLE) {
+        Poly &p = static_cast<Poly &>(a);
+        Rect &r = static_cast<Rect &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(p);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(r);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    } else if (a.GetType() == ShapeType::RECTANGLE && b.GetType() == ShapeType::POLYLINE) {
+        Rect &r = static_cast<Rect &>(a);
+        Poly &p = static_cast<Poly &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(r);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    }
+    // 多段线 vs 三角形
+    else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::TRIANGLE) {
+        Poly &p = static_cast<Poly &>(a);
+        Triangle &t = static_cast<Triangle &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(p);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(t);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    } else if (a.GetType() == ShapeType::TRIANGLE && b.GetType() == ShapeType::POLYLINE) {
+        Triangle &t = static_cast<Triangle &>(a);
+        Poly &p = static_cast<Poly &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(t);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    }
+    // 多段线 vs 菱形
+    else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::DIAMOND) {
+        Poly &p = static_cast<Poly &>(a);
+        Diamond &d = static_cast<Diamond &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(p);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(d);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    } else if (a.GetType() == ShapeType::DIAMOND && b.GetType() == ShapeType::POLYLINE) {
+        Diamond &d = static_cast<Diamond &>(a);
+        Poly &p = static_cast<Poly &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(d);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    }
+    // 多段线 vs 平行四边形
+    else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::PARALLELOGRAM) {
+        Poly &p = static_cast<Poly &>(a);
+        Parallelogram &pg = static_cast<Parallelogram &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(p);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(pg);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    } else if (a.GetType() == ShapeType::PARALLELOGRAM && b.GetType() == ShapeType::POLYLINE) {
+        Parallelogram &pg = static_cast<Parallelogram &>(a);
+        Poly &p = static_cast<Poly &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(pg);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
+                intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
+            }
+    }
+    // 多段线 vs 多段线
+    else if (a.GetType() == ShapeType::POLYLINE && b.GetType() == ShapeType::POLYLINE) {
+        Poly &p1 = static_cast<Poly &>(a);
+        Poly &p2 = static_cast<Poly &>(b);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s1 = edges(p1);
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> s2 = edges(p2);
+        for (size_t i = 0; i < s1.size(); ++i)
+            for (size_t j = 0; j < s2.size(); ++j) {
+                std::vector<D2D1_POINT_2F> pts = lineLine(s1[i].first, s1[i].second, s2[j].first, s2[j].second);
                 intersectionPoints.insert(intersectionPoints.end(), pts.begin(), pts.end());
             }
     }
