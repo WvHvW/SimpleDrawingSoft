@@ -1,5 +1,6 @@
 #include "GraphicsEngine.h"
 #include "Shape.h"
+#include "IntersectionManager.h"
 #include <cmath>
 
 GraphicsEngine::GraphicsEngine() :
@@ -252,4 +253,32 @@ std::vector<std::shared_ptr<Line>> GraphicsEngine::CreateTangents(D2D1_POINT_2F 
     tangents.push_back(std::make_shared<Line>(point, tangent2));
 
     return tangents;
+}
+
+bool GraphicsEngine::selectShapeForIntersection(std::shared_ptr<Shape> shape) {
+    return IntersectionManager::getInstance().selectShape(shape);
+}
+
+void GraphicsEngine::calculateIntersection() {
+    IntersectionManager::getInstance().calculateIntersection();
+}
+
+void GraphicsEngine::clearIntersection() {
+    IntersectionManager::getInstance().clear();
+}
+
+const std::vector<D2D1_POINT_2F> &GraphicsEngine::getIntersectionPoints() const {
+    return IntersectionManager::getInstance().getIntersectionPoints();
+}
+
+bool GraphicsEngine::isIntersectionReady() const {
+    return IntersectionManager::getInstance().hasTwoShapes();
+}
+
+std::shared_ptr<Shape> GraphicsEngine::getFirstIntersectionShape() const {
+    return IntersectionManager::getInstance().getFirstShape();
+}
+
+std::shared_ptr<Shape> GraphicsEngine::getSecondIntersectionShape() const {
+    return IntersectionManager::getInstance().getSecondShape();
 }

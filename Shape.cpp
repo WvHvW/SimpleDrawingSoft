@@ -151,7 +151,7 @@ void Circle::Deserialize(const std::string &data) {
 }
 
 // Rectangle 实现
-Rectangle::Rectangle(D2D1_POINT_2F start, D2D1_POINT_2F end) :
+Rect::Rect(D2D1_POINT_2F start, D2D1_POINT_2F end) :
     Shape(ShapeType::RECTANGLE) {
     // 初始化四个顶点
     m_points[0] = start;                         // 左上角
@@ -160,7 +160,7 @@ Rectangle::Rectangle(D2D1_POINT_2F start, D2D1_POINT_2F end) :
     m_points[3] = D2D1::Point2F(start.x, end.y); // 左下角
 }
 
-void Rectangle::Draw(ID2D1RenderTarget *pRenderTarget,
+void Rect::Draw(ID2D1RenderTarget *pRenderTarget,
                      ID2D1SolidColorBrush *pNormalBrush,
                      ID2D1SolidColorBrush *pSelectedBrush,
                      ID2D1StrokeStyle *pDashStrokeStyle) {
@@ -194,7 +194,7 @@ void Rectangle::Draw(ID2D1RenderTarget *pRenderTarget,
     if (pFactory) pFactory->Release();
 }
 
-bool Rectangle::HitTest(D2D1_POINT_2F point) {
+bool Rect::HitTest(D2D1_POINT_2F point) {
     // 使用射线法检测点是否在多边形内
     int crossings = 0;
     for (int i = 0; i < 4; i++) {
@@ -209,14 +209,14 @@ bool Rectangle::HitTest(D2D1_POINT_2F point) {
     return (crossings % 2) == 1;
 }
 
-void Rectangle::Move(float dx, float dy) {
+void Rect::Move(float dx, float dy) {
     for (int i = 0; i < 4; i++) {
         m_points[i].x += dx;
         m_points[i].y += dy;
     }
 }
 
-void Rectangle::Rotate(float angle) {
+void Rect::Rotate(float angle) {
     D2D1_POINT_2F center = GetCenter();
     float s = sinf(angle);
     float c = cosf(angle);
@@ -236,7 +236,7 @@ void Rectangle::Rotate(float angle) {
     }
 }
 
-void Rectangle::Scale(float scale) {
+void Rect::Scale(float scale) {
     D2D1_POINT_2F center = GetCenter();
     for (int i = 0; i < 4; i++) {
         m_points[i].x = center.x + (m_points[i].x - center.x) * scale;
@@ -244,7 +244,7 @@ void Rectangle::Scale(float scale) {
     }
 }
 
-std::string Rectangle::Serialize() {
+std::string Rect::Serialize() {
     std::ostringstream oss;
     oss << "Rectangle ";
     for (int i = 0; i < 4; i++) {
@@ -253,7 +253,7 @@ std::string Rectangle::Serialize() {
     return oss.str();
 }
 
-void Rectangle::Deserialize(const std::string &data) {
+void Rect::Deserialize(const std::string &data) {
     std::istringstream iss(data);
     std::string type;
     iss >> type;
@@ -693,9 +693,10 @@ bool Curve::HitTest(D2D1_POINT_2F point) {
     return false;
 }
 
-// 计算贝塞尔曲线在参数t处的点
-D2D1_POINT_2F Curve::CalculateBezierPoint(float t) {
-    if (m_points.size() != 4) return D2D1::Point2F(0, 0);
+D2D1_POINT_2F Curve::CalculateBezierPoint(float t) const {
+    if (m_points.size() != 4) {
+        return D2D1::Point2F(0, 0);
+    }
 
     float u = 1 - t;
     float tt = t * t;
@@ -705,7 +706,6 @@ D2D1_POINT_2F Curve::CalculateBezierPoint(float t) {
 
     D2D1_POINT_2F p;
     p.x = uuu * m_points[0].x + 3 * uu * t * m_points[1].x + 3 * u * tt * m_points[2].x + ttt * m_points[3].x;
-
     p.y = uuu * m_points[0].y + 3 * uu * t * m_points[1].y + 3 * u * tt * m_points[2].y + ttt * m_points[3].y;
 
     return p;

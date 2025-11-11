@@ -48,6 +48,13 @@ private:
     D2D1_POINT_2F m_centerPoint;
     std::shared_ptr<Circle> m_selectedCircle;
 
+    // 求交相关状态
+    bool m_isIntersectionMode = false;
+
+    // 交点显示
+    void DrawIntersectionPoints(ID2D1RenderTarget *pRenderTarget);
+    void DrawSelectedIntersectionShapes(ID2D1RenderTarget *pRenderTarget);
+
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -154,10 +161,10 @@ void MainWindow::OnLButtonDown(int x, int y) {
                 StartTransform(m_transformMode, currentPoint);
             }
         } else {
-            // 点击空白处，取消选择和变换
             m_graphicsEngine->ClearSelection();
             CancelTransform();
             SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            m_graphicsEngine->clearIntersection();
         }
         break;
 
@@ -191,9 +198,9 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_startPoint = currentPoint;
             m_clickCount = 1;
             m_isDrawing = true;
-            m_tempShape = std::make_shared<Rectangle>(m_startPoint, currentPoint);
+            m_tempShape = std::make_shared<Rect>(m_startPoint, currentPoint);
         } else {
-            m_graphicsEngine->AddShape(std::make_shared<Rectangle>(m_startPoint, currentPoint));
+            m_graphicsEngine->AddShape(std::make_shared<Rect>(m_startPoint, currentPoint));
             ResetDrawingState();
         }
         break;
@@ -348,6 +355,18 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_selectedCircle.reset();
         }
         break;
+
+    case DrawingMode::INTERSECT:
+        // 选择图元用于求交
+        if (auto selectedShape = m_graphicsEngine->SelectShape(currentPoint)) {
+            if (m_graphicsEngine->selectShapeForIntersection(selectedShape)) {
+                // 选择成功，如果已经有两个图元则自动计算交点
+                if (m_graphicsEngine->isIntersectionReady()) {
+                    m_graphicsEngine->calculateIntersection();
+                }
+            }
+        }
+        break;
     }
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -404,7 +423,7 @@ void MainWindow::OnMouseMove(int x, int y) {
         }
 
         case DrawingMode::RECTANGLE:
-            m_tempShape = std::make_shared<Rectangle>(m_startPoint, currentPoint);
+            m_tempShape = std::make_shared<Rect>(m_startPoint, currentPoint);
             break;
 
         case DrawingMode::TRIANGLE:
@@ -556,6 +575,7 @@ void MainWindow::OnRButtonDown(int x, int y) {
         ResetDrawingState();
         m_graphicsEngine->ClearSelection();
         CancelTransform();
+        m_graphicsEngine->clearIntersection();
     }
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -711,6 +731,83 @@ void MainWindow::EndTransform() {
 void MainWindow::CancelTransform() {
     m_isTransforming = false;
     m_transformMode = TransformMode::NONE;
+}
+
+void MainWindow::DrawIntersectionPoints(ID2D1RenderTarget *pRenderTarget) {
+    auto points = m_graphicsEngine->getIntersectionPoints();
+    if (points.empty()) return;
+
+    ID2D1SolidColorBrush *intersectionBrush = nullptr;
+    HRESULT hr = pRenderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(D2D1::ColorF::Red), &intersectionBrush);
+
+    if (SUCCEEDED(hr) && intersectionBrush) {
+        for (const auto &point : points) {
+            // 绘制红色十字标记
+            float size = 8.0f;
+            pRenderTarget->DrawLine(
+                D2D1::Point2F(point.x - size, point.y),
+                D2D1::Point2F(point.x + size, point.y),
+                intersectionBrush, 3.0f);
+            pRenderTarget->DrawLine(
+                D2D1::Point2F(point.x, point.y - size),
+                D2D1::Point2F(point.x, point.y + size),
+                intersectionBrush, 3.0f);
+
+            // 绘制中心点
+            D2D1_ELLIPSE centerDot = D2D1::Ellipse(point, 4.0f, 4.0f);
+            pRenderTarget->FillEllipse(centerDot, intersectionBrush);
+        }
+        intersectionBrush->Release();
+    }
+}
+
+void MainWindow::DrawSelectedIntersectionShapes(ID2D1RenderTarget *pRenderTarget) {
+    if (m_currentMode != DrawingMode::INTERSECT) return;
+
+    auto shape1 = m_graphicsEngine->getFirstIntersectionShape();
+    auto shape2 = m_graphicsEngine->getSecondIntersectionShape();
+
+    if (!shape1 && !shape2) return;
+
+    ID2D1SolidColorBrush *highlightBrush = nullptr;
+    HRESULT hr = pRenderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(D2D1::ColorF::Yellow), &highlightBrush);
+
+    if (SUCCEEDED(hr) && highlightBrush) {
+        // 创建虚线笔划样式用于高亮
+        ID2D1StrokeStyle *dashStrokeStyle = nullptr;
+        ID2D1Factory *factory = nullptr;
+        pRenderTarget->GetFactory(&factory);
+
+        if (factory) {
+            float dashes[] = {5.0f, 5.0f};
+            factory->CreateStrokeStyle(
+                D2D1::StrokeStyleProperties(
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_ROUND,
+                    D2D1_LINE_JOIN_MITER,
+                    10.0f,
+                    D2D1_DASH_STYLE_CUSTOM,
+                    0.0f),
+                dashes,
+                ARRAYSIZE(dashes),
+                &dashStrokeStyle);
+        }
+
+        // 绘制选中的图元
+        if (shape1) {
+            shape1->Draw(pRenderTarget, highlightBrush, highlightBrush, dashStrokeStyle);
+        }
+        if (shape2) {
+            shape2->Draw(pRenderTarget, highlightBrush, highlightBrush, dashStrokeStyle);
+        }
+
+        if (dashStrokeStyle) dashStrokeStyle->Release();
+        if (factory) factory->Release();
+        highlightBrush->Release();
+    }
 }
 
 void MainWindow::OnPaint() {
@@ -934,12 +1031,16 @@ void MainWindow::OnPaint() {
             }
         }
 
+        DrawIntersectionPoints(m_graphicsEngine->GetRenderTarget());
+
+        DrawSelectedIntersectionShapes(m_graphicsEngine->GetRenderTarget());
+
         m_graphicsEngine->EndDraw();
     }
 }
 
 void MainWindow::OnCommand(WPARAM wParam) {
-    // 处理菜单和工具栏命令
+    DrawingMode previousMode = m_currentMode;
     switch (LOWORD(wParam)) {
     case 32772: m_currentMode = DrawingMode::LINE; break;
     case 32773: m_currentMode = DrawingMode::CIRCLE; break;
@@ -950,8 +1051,12 @@ void MainWindow::OnCommand(WPARAM wParam) {
     case 32777: m_currentMode = DrawingMode::PARALLELOGRAM; break;
     case 32779: m_currentMode = DrawingMode::POLYLINE; break;
     case 32778: m_currentMode = DrawingMode::CURVE; break;
+    case 32780:
+        m_currentMode = DrawingMode::INTERSECT;
+        m_graphicsEngine->clearIntersection();
+        break;
     case 32781:
-        m_currentMode = DrawingMode ::PERPENDICULAR;
+        m_currentMode = DrawingMode::PERPENDICULAR;
         break;
     case 32782:
         m_currentMode = DrawingMode::CENTER;
@@ -972,6 +1077,11 @@ void MainWindow::OnCommand(WPARAM wParam) {
         m_currentMode = DrawingMode::SELECT;
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
+    }
+
+    // 如果从求交模式切换到其他模式，清除求交状态
+    if (previousMode == DrawingMode::INTERSECT && m_currentMode != DrawingMode::INTERSECT) {
+        m_graphicsEngine->clearIntersection();
     }
 
     // 更新图形引擎的绘图模式

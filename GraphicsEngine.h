@@ -13,7 +13,7 @@
 class Shape;
 class Line;
 class Circle;
-class Rectangle;
+class Rect;
 
 class GraphicsEngine {
 public:
@@ -97,6 +97,17 @@ public:
         }
         return -1;
     }
+
+    // 求交功能
+    bool selectShapeForIntersection(std::shared_ptr<Shape> shape);
+    void calculateIntersection();
+    void clearIntersection();
+    const std::vector<D2D1_POINT_2F> &getIntersectionPoints() const;
+    bool isIntersectionReady() const;
+
+    // 获取选中的求交图元（用于高亮显示）
+    std::shared_ptr<Shape> getFirstIntersectionShape() const;
+    std::shared_ptr<Shape> getSecondIntersectionShape() const;
 
 private:
     HWND m_hwnd;

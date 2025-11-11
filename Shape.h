@@ -35,6 +35,33 @@ public:
         m_isSelected = selected;
     }
 
+    // 提供默认实现返回边界框，子类可以重写
+    virtual std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const {
+        D2D1_RECT_F bounds = GetBounds();
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        D2D1_POINT_2F p1 = {bounds.left, bounds.top};
+        D2D1_POINT_2F p2 = {bounds.right, bounds.top};
+        D2D1_POINT_2F p3 = {bounds.right, bounds.bottom};
+        D2D1_POINT_2F p4 = {bounds.left, bounds.bottom};
+
+        segments.push_back({p1, p2});
+        segments.push_back({p2, p3});
+        segments.push_back({p3, p4});
+        segments.push_back({p4, p1});
+
+        return segments;
+    }
+
+    // 默认返回false，Circle类重写
+    virtual bool HasCircleProperties() const {
+        return false;
+    }
+    // 默认返回false，Circle类重写
+    virtual bool GetCircleGeometry(D2D1_POINT_2F &center, float &radius) const {
+        return false;
+    }
+
     virtual std::string Serialize() = 0;
     virtual void Deserialize(const std::string &data) = 0;
 
@@ -80,6 +107,13 @@ public:
             max(m_start.y, m_end.y));
     }
 
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+        segments.push_back({m_start, m_end});
+        return segments;
+    }
+
 private:
     D2D1_POINT_2F m_start, m_end;
 };
@@ -118,15 +152,48 @@ public:
             m_center.y + m_radius);
     }
 
+    // 重写离散线段函数 - 将圆离散为多边形
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        const int segmentsCount = 32;
+        std::vector<D2D1_POINT_2F> points;
+
+        for (int i = 0; i < segmentsCount; ++i) {
+            float angle = 2.0f * 3.14159265358979323846f * i / segmentsCount;
+            D2D1_POINT_2F point;
+            point.x = m_center.x + m_radius * cosf(angle);
+            point.y = m_center.y + m_radius * sinf(angle);
+            points.push_back(point);
+        }
+
+        for (int i = 0; i < segmentsCount; ++i) {
+            segments.push_back({points[i], points[(i + 1) % segmentsCount]});
+        }
+
+        return segments;
+    }
+
+    // 重写圆形相关函数
+    bool HasCircleProperties() const override {
+        return true;
+    }
+
+    bool GetCircleGeometry(D2D1_POINT_2F &center, float &radius) const override {
+        center = m_center;
+        radius = m_radius;
+        return true;
+    }
+
 private:
     D2D1_POINT_2F m_center;
     float m_radius;
 };
 
 // 矩形类
-class Rectangle : public Shape {
+class Rect : public Shape {
 public:
-    Rectangle(D2D1_POINT_2F start, D2D1_POINT_2F end);
+    Rect(D2D1_POINT_2F start, D2D1_POINT_2F end);
 
     void Draw(ID2D1RenderTarget *pRenderTarget,
               ID2D1SolidColorBrush *pBrush,
@@ -162,6 +229,18 @@ public:
 
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
+
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        segments.push_back({m_points[0], m_points[1]});
+        segments.push_back({m_points[1], m_points[2]});
+        segments.push_back({m_points[2], m_points[3]});
+        segments.push_back({m_points[3], m_points[0]});
+
+        return segments;
+    }
 
 private:
     D2D1_POINT_2F m_points[4]; // 存储四个顶点
@@ -207,6 +286,17 @@ public:
         return D2D1::RectF(minX, minY, maxX, maxY);
     }
 
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        segments.push_back({m_points[0], m_points[1]});
+        segments.push_back({m_points[1], m_points[2]});
+        segments.push_back({m_points[2], m_points[0]});
+
+        return segments;
+    }
+
 private:
     D2D1_POINT_2F m_points[3];
 };
@@ -240,6 +330,27 @@ public:
             m_center.y - height,
             m_center.x + width,
             m_center.y + height);
+    }
+
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        // 计算菱形的四个顶点
+        float dx = std::abs(m_corner.x - m_center.x);
+        float dy = std::abs(m_corner.y - m_center.y);
+
+        D2D1_POINT_2F top = {m_center.x, m_center.y - dy};
+        D2D1_POINT_2F right = {m_center.x + dx, m_center.y};
+        D2D1_POINT_2F bottom = {m_center.x, m_center.y + dy};
+        D2D1_POINT_2F left = {m_center.x - dx, m_center.y};
+
+        segments.push_back({top, right});
+        segments.push_back({right, bottom});
+        segments.push_back({bottom, left});
+        segments.push_back({left, top});
+
+        return segments;
     }
 
 private:
@@ -287,6 +398,18 @@ public:
         return D2D1::RectF(minX, minY, maxX, maxY);
     }
 
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        segments.push_back({m_points[0], m_points[1]});
+        segments.push_back({m_points[1], m_points[2]});
+        segments.push_back({m_points[2], m_points[3]});
+        segments.push_back({m_points[3], m_points[0]});
+
+        return segments;
+    }
+
 private:
     D2D1_POINT_2F m_points[4]; // 四个顶点
 };
@@ -309,7 +432,7 @@ public:
     std::string Serialize() override;
     void Deserialize(const std::string &data) override;
 
-    // 获取控制点
+    // 获取点集
     const std::vector<D2D1_POINT_2F> &GetPoints() const {
         return m_points;
     }
@@ -348,11 +471,36 @@ public:
         return D2D1::RectF(minX, minY, maxX, maxY);
     }
 
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        if (m_points.size() != 4) {
+            // 如果不是贝塞尔曲线，使用边界框
+            return Shape::GetIntersectionSegments();
+        }
+
+        // 将贝塞尔曲线离散为多个线段
+        const int segmentsCount = 20;
+        std::vector<D2D1_POINT_2F> curvePoints;
+
+        for (int i = 0; i <= segmentsCount; ++i) {
+            float t = static_cast<float>(i) / segmentsCount;
+            curvePoints.push_back(CalculateBezierPoint(t));
+        }
+
+        for (size_t i = 1; i < curvePoints.size(); ++i) {
+            segments.push_back({curvePoints[i - 1], curvePoints[i]});
+        }
+
+        return segments;
+    }
+
 private:
     std::vector<D2D1_POINT_2F> m_points;
 
     // 计算贝塞尔曲线在参数t处的点
-    D2D1_POINT_2F CalculateBezierPoint(float t);
+    D2D1_POINT_2F CalculateBezierPoint(float t) const;
 };
 
 // 多段线类
@@ -413,6 +561,21 @@ public:
         }
 
         return D2D1::RectF(minX, minY, maxX, maxY);
+    }
+
+    // 重写离散线段函数 - 直接使用折线的各个线段
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        if (m_points.size() < 2) {
+            return segments;
+        }
+
+        for (size_t i = 1; i < m_points.size(); ++i) {
+            segments.push_back({m_points[i - 1], m_points[i]});
+        }
+
+        return segments;
     }
 
 private:

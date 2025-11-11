@@ -127,6 +127,7 @@
     <ClInclude Include="CommonType.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="GraphicsEngine.h" />
+    <ClInclude Include="IntersectionManager.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="Shape.h" />
     <ClInclude Include="targetver.h" />
@@ -134,6 +135,7 @@
   <ItemGroup>
     <ClCompile Include="CommonType.cpp" />
     <ClCompile Include="GraphicsEngine.cpp" />
+    <ClCompile Include="IntersectionManager.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="Shape.cpp" />
   </ItemGroup>
