@@ -3,6 +3,57 @@
 #include <sstream>
 #include <algorithm>
 
+std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
+    std::istringstream iss(data);
+    std::string type;
+    iss >> type;
+
+    if (type == "Line") {
+        D2D1_POINT_2F start, end;
+        iss >> start.x >> start.y >> end.x >> end.y;
+        return std::make_shared<Line>(start, end);
+    } else if (type == "Circle") {
+        D2D1_POINT_2F center;
+        float radius;
+        iss >> center.x >> center.y >> radius;
+        return std::make_shared<Circle>(center, radius);
+    } else if (type == "Rect") {
+        D2D1_POINT_2F start, end;
+        iss >> start.x >> start.y >> end.x >> end.y;
+        return std::make_shared<Rect>(start, end);
+    } else if (type == "Triangle") {
+        D2D1_POINT_2F p1, p2, p3;
+        iss >> p1.x >> p1.y >> p2.x >> p2.y >> p3.x >> p3.y;
+        return std::make_shared<Triangle>(p1, p2, p3);
+    } else if (type == "Diamond") {
+        D2D1_POINT_2F center;
+        float radiusX, radiusY, angle;
+        iss >> center.x >> center.y >> radiusX >> radiusY >> angle;
+        return std::make_shared<Diamond>(center, radiusX, radiusY, angle);
+    } else if (type == "Parallelogram") {
+        D2D1_POINT_2F p1, p2, p3;
+        iss >> p1.x >> p1.y >> p2.x >> p2.y >> p3.x >> p3.y;
+        return std::make_shared<Parallelogram>(p1, p2, p3);
+    } else if (type == "Curve") {
+        D2D1_POINT_2F start, control1, control2, end;
+        iss >> start.x >> start.y >> control1.x >> control1.y
+            >> control2.x >> control2.y >> end.x >> end.y;
+        return std::make_shared<Curve>(start, control1, control2, end);
+    } else if (type == "Polyline") {
+        std::vector<D2D1_POINT_2F> points;
+        size_t pointCount;
+        iss >> pointCount;
+        for (size_t i = 0; i < pointCount; ++i) {
+            D2D1_POINT_2F point;
+            iss >> point.x >> point.y;
+            points.push_back(point);
+        }
+        return std::make_shared<Poly>(points);
+    }
+
+    return nullptr; // 未知类型
+}
+
 // 点到线段距离平方，若 < distThresh 则命中
 static bool PointNearSegment(D2D1_POINT_2F p,
                              D2D1_POINT_2F a,
@@ -119,12 +170,6 @@ std::string Line::Serialize() {
     return oss.str();
 }
 
-void Line::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-    iss >> type >> m_start.x >> m_start.y >> m_end.x >> m_end.y;
-}
-
 // Circle 实现
 Circle::Circle(D2D1_POINT_2F center, float radius) :
     Shape(ShapeType::CIRCLE), m_center(center), m_radius(radius) {
@@ -163,12 +208,6 @@ std::string Circle::Serialize() {
     std::ostringstream oss;
     oss << "Circle " << m_center.x << " " << m_center.y << " " << m_radius;
     return oss.str();
-}
-
-void Circle::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-    iss >> type >> m_center.x >> m_center.y >> m_radius;
 }
 
 // Rectangle 实现
@@ -265,15 +304,6 @@ std::string Rect::Serialize() {
         oss << m_points[i].x << " " << m_points[i].y << " ";
     }
     return oss.str();
-}
-
-void Rect::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-    iss >> type;
-    for (int i = 0; i < 4; i++) {
-        iss >> m_points[i].x >> m_points[i].y;
-    }
 }
 
 // Triangle 实现
@@ -373,14 +403,6 @@ std::string Triangle::Serialize() {
         << m_points[1].x << " " << m_points[1].y << " "
         << m_points[2].x << " " << m_points[2].y;
     return oss.str();
-}
-
-void Triangle::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-    iss >> type >> m_points[0].x >> m_points[0].y
-        >> m_points[1].x >> m_points[1].y
-        >> m_points[2].x >> m_points[2].y;
 }
 
 // Diamond 实现
@@ -490,13 +512,6 @@ std::string Diamond::Serialize() {
     oss << "Diamond " << m_center.x << " " << m_center.y << " "
         << m_radiusX << " " << m_radiusY << " " << m_angle;
     return oss.str();
-}
-
-void Diamond::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-    iss >> type >> m_center.x >> m_center.y
-        >> m_radiusX >> m_radiusY >> m_angle;
 }
 
 // Parallelogram 实现
@@ -609,18 +624,6 @@ std::string Parallelogram::Serialize() {
         << m_points[1].x << " " << m_points[1].y << " "
         << m_points[2].x << " " << m_points[2].y;
     return oss.str();
-}
-
-void Parallelogram::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-    iss >> type >> m_points[0].x >> m_points[0].y
-        >> m_points[1].x >> m_points[1].y
-        >> m_points[2].x >> m_points[2].y;
-
-    // 重新计算第四个点
-    m_points[3].x = m_points[0].x + (m_points[2].x - m_points[1].x);
-    m_points[3].y = m_points[0].y + (m_points[2].y - m_points[1].y);
 }
 
 // Curve 实现
@@ -817,18 +820,6 @@ std::string Curve::Serialize() {
     return oss.str();
 }
 
-void Curve::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-
-    m_points.clear();
-    for (int i = 0; i < 4; i++) {
-        D2D1_POINT_2F point;
-        iss >> point.x >> point.y;
-        m_points.push_back(point);
-    }
-}
-
 std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> Curve::GetIntersectionSegments() const {
     std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segs;
     const int n = CURVE_FLATTEN_SEGS;
@@ -979,19 +970,4 @@ std::string Poly::Serialize() {
         oss << " " << point.x << " " << point.y;
     }
     return oss.str();
-}
-
-void Poly::Deserialize(const std::string &data) {
-    std::istringstream iss(data);
-    std::string type;
-    size_t pointCount;
-
-    iss >> type >> pointCount;
-
-    m_points.clear();
-    for (size_t i = 0; i < pointCount; i++) {
-        D2D1_POINT_2F point;
-        iss >> point.x >> point.y;
-        m_points.push_back(point);
-    }
 }

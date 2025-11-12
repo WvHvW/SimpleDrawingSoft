@@ -109,6 +109,10 @@ public:
     std::shared_ptr<Shape> getFirstIntersectionShape() const;
     std::shared_ptr<Shape> getSecondIntersectionShape() const;
 
+    void ClearAllShapes() {
+        m_shapes.clear();
+    }
+
 private:
     HWND m_hwnd;
     ID2D1Factory *m_pD2DFactory;
@@ -123,5 +127,4 @@ private:
     DrawingMode m_currentMode;
 
     HRESULT CreateDeviceResources();
-    void DrawCoordinateInfo();
 };

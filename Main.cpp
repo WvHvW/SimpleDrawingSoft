@@ -2,6 +2,9 @@
 #include <windowsx.h>
 #include <commdlg.h>
 #include <memory>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <cmath>
 #include "GraphicsEngine.h"
 #include "Shape.h"
@@ -1103,6 +1106,12 @@ void MainWindow::OnCommand(WPARAM wParam) {
         m_transformMode = TransformMode::SCALE;
         m_currentMode = DrawingMode::SELECT;
         break;
+    case 32790:
+        SaveToFile();
+        break;
+    case 32791:
+        LoadFromFile();
+        break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }
 
@@ -1119,12 +1128,74 @@ void MainWindow::OnCommand(WPARAM wParam) {
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
+// UTF-8 窄串 ↔ 宽串
+static std::wstring StringToWString(const std::string &s) {
+    if (s.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring ws(len, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
+    return ws;
+}
+
+static std::string WStringToString(const std::wstring &ws) {
+    if (ws.empty()) return {};
+    int len = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string s(len, 0);
+    WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, &s[0], len, nullptr, nullptr);
+    return s;
+}
+
 void MainWindow::SaveToFile() {
-    // 实现文件保存
+    WCHAR szFile[MAX_PATH] = L"";
+
+    OPENFILENAME ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = L"Drawing Files (*.drawing)\0*.drawing\0All Files\0*.*\0";
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    ofn.lpstrDefExt = L"drawing";
+
+    if (GetSaveFileName(&ofn)) {
+        std::wofstream out(szFile);
+        if (out) {
+            for (const auto &shape : m_graphicsEngine->GetShapes())
+                out << StringToWString(shape->Serialize()) << L'\n';
+        }
+    }
 }
 
 void MainWindow::LoadFromFile() {
-    // 实现文件加载
+    WCHAR szFile[MAX_PATH] = L"";
+
+    OPENFILENAME ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = L"Drawing Files (*.drawing)\0*.drawing\0All Files\0*.*\0";
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+
+    if (GetOpenFileName(&ofn)) {
+        std::wifstream inFile(szFile);
+        if (!inFile) return;
+
+        // 1. 清空画布
+        m_graphicsEngine->ClearAllShapes();
+
+        // 2. 加载新数据
+        std::wstring line;
+        while (std::getline(inFile, line)) {
+            if (auto shape = Shape::Deserialize(WStringToString(line)))
+                m_graphicsEngine->AddShape(shape);
+        }
+
+        // 3. 重置交互状态
+        m_graphicsEngine->ClearSelection();
+        m_graphicsEngine->clearIntersection();
+        ResetDrawingState();
+    }
 }
 
 HRESULT MainWindow::Initialize(HINSTANCE hInstance, int nCmdShow) {

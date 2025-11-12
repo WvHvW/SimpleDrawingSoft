@@ -63,7 +63,7 @@ public:
     }
 
     virtual std::string Serialize() = 0;
-    virtual void Deserialize(const std::string &data) = 0;
+    static std::shared_ptr<Shape> Deserialize(const std::string &data);
 
 protected:
     ShapeType m_type;
@@ -86,7 +86,6 @@ public:
     void Scale(float scale) override;
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
 
     D2D1_POINT_2F GetStart() const {
         return m_start;
@@ -135,8 +134,6 @@ public:
     void Scale(float scale) override;
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
-
     D2D1_POINT_2F GetCenter() const override {
         return m_center;
     }
@@ -228,7 +225,6 @@ public:
     }
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
 
     // 重写离散线段函数
     std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
@@ -262,7 +258,6 @@ public:
     void Scale(float scale) override;
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
 
     D2D1_POINT_2F GetCenter() const override {
         float centerX = (m_points[0].x + m_points[1].x + m_points[2].x) / 3;
@@ -322,7 +317,6 @@ public:
     D2D1_RECT_F GetBounds() const override;
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
 
     std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>>
     GetIntersectionSegments() const override;
@@ -350,7 +344,6 @@ public:
     void Scale(float scale) override;
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
 
     D2D1_POINT_2F GetCenter() const override {
         float centerX = (m_points[0].x + m_points[1].x + m_points[2].x + m_points[3].x) / 4;
@@ -406,7 +399,6 @@ public:
     void Scale(float scale) override;
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
 
     // 获取点集
     const std::vector<D2D1_POINT_2F> &GetPoints() const {
@@ -474,7 +466,6 @@ public:
     void Scale(float scale) override;
 
     std::string Serialize() override;
-    void Deserialize(const std::string &data) override;
 
     void AddPoint(D2D1_POINT_2F point);
     const std::vector<D2D1_POINT_2F> &GetPoints() const {
