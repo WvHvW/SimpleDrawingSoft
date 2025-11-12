@@ -32,6 +32,7 @@ private:
     std::shared_ptr<Line> m_tempPolyLine;
     IDWriteFactory *m_pDW = nullptr;
     IDWriteTextFormat *m_pTF = nullptr;
+    IDWriteTextLayout *m_pModeLayout = nullptr; // 缓存模式文本布局
 
     // 菱形绘制参数
     D2D1_POINT_2F m_diamondCenter;
@@ -120,6 +121,10 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_DESTROY:
         PostQuitMessage(0);
+        if (m_pModeLayout) {
+            m_pModeLayout->Release();
+            m_pModeLayout = nullptr;
+        }
         return 0;
 
     case WM_PAINT:
@@ -1108,6 +1113,74 @@ void MainWindow::OnPaint() {
         DrawIntersectionPoints(m_graphicsEngine->GetRenderTarget());
 
         DrawSelectedIntersectionShapes(m_graphicsEngine->GetRenderTarget());
+
+        /* ----- 右上角模式提示 ----- */
+        ID2D1RenderTarget *rt = m_graphicsEngine->GetRenderTarget();
+        // 1. 第一次进来时把 DirectWrite 工厂和格式建好
+        static IDWriteFactory *pDW = nullptr;
+        static IDWriteTextFormat *pTF = nullptr;
+        if (!pDW) {
+            DWriteCreateFactory(
+                DWRITE_FACTORY_TYPE_SHARED,
+                __uuidof(IDWriteFactory),
+                reinterpret_cast<IUnknown **>(&pDW));
+            if (pDW)
+                pDW->CreateTextFormat(
+                    L"Consolas", nullptr,
+                    DWRITE_FONT_WEIGHT_NORMAL,
+                    DWRITE_FONT_STYLE_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    14.0f, L"en-us", &pTF);
+        }
+
+        // 2. 组装当前模式字符串
+        const wchar_t *name = L"UNKNOWN";
+        switch (m_currentMode) {
+        case DrawingMode::SELECT: name = L"SELECT"; break;
+        case DrawingMode::LINE: name = L"LINE"; break;
+        case DrawingMode::CIRCLE: name = L"CIRCLE"; break;
+        case DrawingMode::RECTANGLE: name = L"RECTANGLE"; break;
+        case DrawingMode::TRIANGLE: name = L"TRIANGLE"; break;
+        case DrawingMode::DIAMOND: name = L"DIAMOND"; break;
+        case DrawingMode::PARALLELOGRAM: name = L"PARALLELOGRAM"; break;
+        case DrawingMode::POLYLINE: name = L"POLYLINE"; break;
+        case DrawingMode::CURVE: name = L"CURVE"; break;
+        case DrawingMode::PERPENDICULAR: name = L"PERPENDICULAR"; break;
+        case DrawingMode::TANGENT: name = L"TANGENT"; break;
+        case DrawingMode::CENTER: name = L"CENTER"; break;
+        case DrawingMode::INTERSECT: name = L"INTERSECT"; break;
+        }
+        WCHAR txt[64];
+        swprintf_s(txt, L"Mode: %s", name);
+
+        // 3. 建文本布局（每次重建，因为字符串会变）
+        IDWriteTextLayout *lay = nullptr;
+        pDW->CreateTextLayout(txt, wcslen(txt), pTF, 300, 30, &lay);
+
+        DWRITE_TEXT_METRICS m;
+        lay->GetMetrics(&m);
+
+        // 4. 右上角定位
+        D2D1_SIZE_F sz = rt->GetSize();
+        float left = sz.width - m.width - 10.0f;
+        float top = 10.0f;
+
+        // 5. 画背景
+        ID2D1SolidColorBrush *bgBr = nullptr;
+        ID2D1SolidColorBrush *txtBr = nullptr;
+        rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 0.9f), &bgBr);
+        rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &txtBr);
+        if (bgBr && txtBr) {
+            D2D1_RECT_F rc = {left - 4, top - 4, left + m.width + 4, top + m.height + 4};
+            rt->FillRectangle(&rc, bgBr);
+            rt->DrawRectangle(&rc, txtBr, 1.0f);
+            rt->DrawTextLayout({left, top}, lay, txtBr);
+        }
+        if (bgBr) bgBr->Release();
+        if (txtBr) txtBr->Release();
+
+        lay->Release();
+        /* ------------------------- */
 
         m_graphicsEngine->EndDraw();
     }
