@@ -30,6 +30,8 @@ private:
     std::shared_ptr<Curve> m_currentCurve;
     bool m_isDrawingCurve = false;
     std::shared_ptr<Line> m_tempPolyLine;
+    IDWriteFactory *m_pDW = nullptr;
+    IDWriteTextFormat *m_pTF = nullptr;
 
     // 菱形绘制参数
     D2D1_POINT_2F m_diamondCenter;
@@ -763,35 +765,61 @@ void MainWindow::CancelTransform() {
     m_transformMode = TransformMode::NONE;
 }
 
-void MainWindow::DrawIntersectionPoints(ID2D1RenderTarget *pRenderTarget) {
+void MainWindow::DrawIntersectionPoints(ID2D1RenderTarget *rt) {
     auto points = m_graphicsEngine->getIntersectionPoints();
     if (points.empty()) return;
 
-    ID2D1SolidColorBrush *intersectionBrush = nullptr;
-    HRESULT hr = pRenderTarget->CreateSolidColorBrush(
-        D2D1::ColorF(D2D1::ColorF::Red), &intersectionBrush);
-
-    if (SUCCEEDED(hr) && intersectionBrush) {
-        for (const auto &point : points) {
-            // 绘制红色十字标记
-            float size = 8.0f;
-            pRenderTarget->DrawLine(
-                D2D1::Point2F(point.x - size, point.y),
-                D2D1::Point2F(point.x + size, point.y),
-                intersectionBrush, 3.0f);
-            pRenderTarget->DrawLine(
-                D2D1::Point2F(point.x, point.y - size),
-                D2D1::Point2F(point.x, point.y + size),
-                intersectionBrush, 3.0f);
-
-            // 绘制中心点
-            D2D1_ELLIPSE centerDot = D2D1::Ellipse(point, 4.0f, 4.0f);
-            pRenderTarget->FillEllipse(centerDot, intersectionBrush);
-        }
-        intersectionBrush->Release();
+    // 惰性初始化 DirectWrite
+    if (!m_pDW) {
+        DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED,
+            __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown **>(&m_pDW));
+        if (m_pDW)
+            m_pDW->CreateTextFormat(
+                L"Consolas", nullptr,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                12.0f, L"en-us", &m_pTF);
     }
-}
+    if (!m_pTF) return;
 
+    ID2D1SolidColorBrush *br = nullptr;
+    ID2D1SolidColorBrush *bg = nullptr;
+    rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Red), &br);
+    rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 0.9f), &bg);
+    if (!br || !bg) {
+        if (br) br->Release();
+        if (bg) bg->Release();
+        return;
+    }
+
+    for (const auto &p : points) {
+        // 十字
+        float sz = 8.0f;
+        rt->DrawLine({p.x - sz, p.y}, {p.x + sz, p.y}, br, 2.0f);
+        rt->DrawLine({p.x, p.y - sz}, {p.x, p.y + sz}, br, 2.0f);
+        rt->FillEllipse(D2D1::Ellipse(p, 4.0f, 4.0f), br);
+
+        // 坐标文本
+        WCHAR txt[64];
+        swprintf_s(txt, L"%.1f, %.1f", p.x, p.y);
+        IDWriteTextLayout *layout = nullptr;
+        m_pDW->CreateTextLayout(txt, wcslen(txt), m_pTF, 200, 30, &layout);
+        if (layout) {
+            DWRITE_TEXT_METRICS m;
+            layout->GetMetrics(&m);
+            D2D1_RECT_F rc = {p.x + 10, p.y - 20, p.x + 10 + m.width + 4, p.y - 20 + m.height + 4};
+            rt->FillRectangle(&rc, bg);
+            rt->DrawRectangle(&rc, br, 1.0f);
+            rt->DrawTextLayout({p.x + 12, p.y - 18}, layout, br);
+            layout->Release();
+        }
+    }
+    br->Release();
+    bg->Release();
+}
 void MainWindow::DrawSelectedIntersectionShapes(ID2D1RenderTarget *pRenderTarget) {
     if (m_currentMode != DrawingMode::INTERSECT) return;
 
@@ -954,19 +982,35 @@ void MainWindow::OnPaint() {
 
                         textBgBrush->Release();
 
-                        // 使用GDI绘制文本（避免DirectWrite依赖）
-                        HDC hdc = GetDC(m_hwnd);
-                        SetTextColor(hdc, RGB(255, 165, 0)); // 橙色文本
-                        SetBkColor(hdc, RGB(255, 255, 255)); // 白色背景
-
-                        // 转换坐标到屏幕坐标
-                        POINT screenPoint = {
-                            static_cast<LONG>(textX + 5),
-                            static_cast<LONG>(textY + 2)};
-
-                        // 绘制文本
-                        TextOutW(hdc, screenPoint.x, screenPoint.y, coordText, wcslen(coordText));
-                        ReleaseDC(m_hwnd, hdc);
+                        // DirectWrite 画切点坐标
+                        if (!m_pDW) {
+                            DWriteCreateFactory(
+                                DWRITE_FACTORY_TYPE_SHARED,
+                                __uuidof(IDWriteFactory),
+                                reinterpret_cast<IUnknown **>(&m_pDW));
+                            if (m_pDW)
+                                m_pDW->CreateTextFormat(
+                                    L"Consolas", nullptr,
+                                    DWRITE_FONT_WEIGHT_NORMAL,
+                                    DWRITE_FONT_STYLE_NORMAL,
+                                    DWRITE_FONT_STRETCH_NORMAL,
+                                    12.0f, L"en-us", &m_pTF);
+                        }
+                        if (m_pTF) {
+                            WCHAR coordText[100];
+                            swprintf_s(coordText, L"切点: (%.1f, %.1f)", endPoint.x, endPoint.y);
+                            IDWriteTextLayout *layout = nullptr;
+                            m_pDW->CreateTextLayout(coordText, wcslen(coordText), m_pTF, 200, 30, &layout);
+                            if (layout) {
+                                DWRITE_TEXT_METRICS m;
+                                layout->GetMetrics(&m);
+                                D2D1_RECT_F rc = {textX, textY, textX + m.width + 4, textY + m.height + 4};
+                                pRenderTarget->FillRectangle(&rc, textBgBrush);
+                                pRenderTarget->DrawRectangle(&rc, tempBrush, 1.0f);
+                                pRenderTarget->DrawTextLayout({textX + 2, textY + 2}, layout, tempBrush);
+                                layout->Release();
+                            }
+                        }
                     }
                 }
                 tempBrush->Release();
