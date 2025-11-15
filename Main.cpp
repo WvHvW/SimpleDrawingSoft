@@ -339,13 +339,15 @@ void MainWindow::OnLButtonDown(int x, int y) {
         }
         break;
 
-    case DrawingMode::TANGENT: // 假设这是切线模式的枚举值
+    case DrawingMode::TANGENT:
         if (!m_isDrawingTangent) {
             // 第一次点击：选择圆
             if (auto selectedShape = m_graphicsEngine->SelectShape(currentPoint)) {
-                if (selectedShape->GetType() == ShapeType::CIRCLE) {
+                if (selectedShape && selectedShape->GetType() == ShapeType::CIRCLE) {
                     m_selectedCircleForTangent = std::dynamic_pointer_cast<Circle>(selectedShape);
-                    m_isDrawingTangent = true;
+                    if (m_selectedCircleForTangent) { // 添加空指针检查
+                        m_isDrawingTangent = true;
+                    }
                 }
             }
         } else {
@@ -353,7 +355,9 @@ void MainWindow::OnLButtonDown(int x, int y) {
             if (m_selectedCircleForTangent) {
                 auto tangents = m_graphicsEngine->CreateTangents(currentPoint, m_selectedCircleForTangent);
                 for (auto &tangent : tangents) {
-                    m_graphicsEngine->AddShape(tangent);
+                    if (tangent) { // 检查切线是否有效
+                        m_graphicsEngine->AddShape(tangent);
+                    }
                 }
             }
             ResetTangentState();
@@ -930,97 +934,74 @@ void MainWindow::OnPaint() {
             }
         }
 
-        // 绘制切线预览
-        if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && !m_tempTangents.empty()) {
+        // 绘制切线预览和切点坐标
+        if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && m_selectedCircleForTangent && !m_tempTangents.empty()) {
             ID2D1RenderTarget *pRenderTarget = m_graphicsEngine->GetRenderTarget();
+
             ID2D1SolidColorBrush *tempBrush = nullptr;
-            HRESULT hr = pRenderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(D2D1::ColorF::Orange), &tempBrush);
+            HRESULT hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Orange), &tempBrush);
 
             if (SUCCEEDED(hr) && tempBrush) {
+                // 确保 DirectWrite 工厂和文本格式已初始化
+                if (!m_pDW) {
+                    DWriteCreateFactory(
+                        DWRITE_FACTORY_TYPE_SHARED,
+                        __uuidof(IDWriteFactory),
+                        reinterpret_cast<IUnknown **>(&m_pDW));
+                }
+                if (!m_pTF && m_pDW) {
+                    m_pDW->CreateTextFormat(
+                        L"Consolas", nullptr,
+                        DWRITE_FONT_WEIGHT_NORMAL,
+                        DWRITE_FONT_STYLE_NORMAL,
+                        DWRITE_FONT_STRETCH_NORMAL,
+                        12.0f, L"en-us", &m_pTF);
+                }
+
                 for (auto &tangent : m_tempTangents) {
+                    if (!tangent) continue;
+
                     // 绘制切线
                     tangent->Draw(pRenderTarget, tempBrush, tempBrush, nullptr);
 
-                    // 获取切线的起点和终点（终点是切点）
-                    D2D1_POINT_2F startPoint = tangent->GetStart();
+                    // 获取切点
                     D2D1_POINT_2F endPoint = tangent->GetEnd();
 
                     // 绘制切点标记
                     D2D1_ELLIPSE tangentPoint = D2D1::Ellipse(endPoint, 4.0f, 4.0f);
                     pRenderTarget->FillEllipse(tangentPoint, tempBrush);
 
-                    // 绘制切点坐标文本背景
-                    ID2D1SolidColorBrush *textBgBrush = nullptr;
-                    pRenderTarget->CreateSolidColorBrush(
-                        D2D1::ColorF(D2D1::ColorF::White, 0.8f), &textBgBrush);
-
-                    if (textBgBrush) {
-                        // 格式化坐标文本
+                    // 绘制坐标文本
+                    if (m_pTF) {
                         WCHAR coordText[100];
                         swprintf_s(coordText, L"切点: (%.1f, %.1f)", endPoint.x, endPoint.y);
 
-                        // 计算文本位置（确保不会超出屏幕）
+                        // 计算文本位置
                         float textX = endPoint.x + 10.0f;
                         float textY = endPoint.y - 15.0f;
 
-                        // 如果切点在屏幕右侧，调整文本位置到左侧
-                        RECT clientRect;
-                        GetClientRect(m_hwnd, &clientRect);
-                        if (textX + 120.0f > clientRect.right) {
-                            textX = endPoint.x - 130.0f;
-                        }
-
-                        // 如果切点在屏幕底部，调整文本位置到上方
-                        if (textY < clientRect.top + 10) {
-                            textY = endPoint.y + 10.0f;
-                        }
-
-                        D2D1_RECT_F textRect = D2D1::RectF(
-                            textX, textY, textX + 120.0f, textY + 20.0f);
-
                         // 绘制文本背景
-                        pRenderTarget->FillRectangle(textRect, textBgBrush);
-
-                        // 绘制坐标文本边框
-                        pRenderTarget->DrawRectangle(textRect, tempBrush, 1.0f);
-
-                        textBgBrush->Release();
-
-                        // DirectWrite 画切点坐标
-                        if (!m_pDW) {
-                            DWriteCreateFactory(
-                                DWRITE_FACTORY_TYPE_SHARED,
-                                __uuidof(IDWriteFactory),
-                                reinterpret_cast<IUnknown **>(&m_pDW));
-                            if (m_pDW)
-                                m_pDW->CreateTextFormat(
-                                    L"Consolas", nullptr,
-                                    DWRITE_FONT_WEIGHT_NORMAL,
-                                    DWRITE_FONT_STYLE_NORMAL,
-                                    DWRITE_FONT_STRETCH_NORMAL,
-                                    12.0f, L"en-us", &m_pTF);
+                        ID2D1SolidColorBrush *bgBrush = nullptr;
+                        if (SUCCEEDED(pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 0.8f), &bgBrush))) {
+                            D2D1_RECT_F textRect = {textX, textY, textX + 120.0f, textY + 20.0f};
+                            pRenderTarget->FillRectangle(textRect, bgBrush);
+                            pRenderTarget->DrawRectangle(textRect, tempBrush, 1.0f);
+                            bgBrush->Release();
                         }
-                        if (m_pTF) {
-                            WCHAR coordText[100];
-                            swprintf_s(coordText, L"切点: (%.1f, %.1f)", endPoint.x, endPoint.y);
-                            IDWriteTextLayout *layout = nullptr;
-                            m_pDW->CreateTextLayout(coordText, wcslen(coordText), m_pTF, 200, 30, &layout);
-                            if (layout) {
-                                DWRITE_TEXT_METRICS m;
-                                layout->GetMetrics(&m);
-                                D2D1_RECT_F rc = {textX, textY, textX + m.width + 4, textY + m.height + 4};
-                                pRenderTarget->FillRectangle(&rc, textBgBrush);
-                                pRenderTarget->DrawRectangle(&rc, tempBrush, 1.0f);
-                                pRenderTarget->DrawTextLayout({textX + 2, textY + 2}, layout, tempBrush);
-                                layout->Release();
-                            }
-                        }
+
+                        // 绘制文本
+                        pRenderTarget->DrawText(
+                            coordText,
+                            wcslen(coordText),
+                            m_pTF,
+                            D2D1::RectF(textX + 2, textY + 2, textX + 120.0f, textY + 20.0f),
+                            tempBrush);
                     }
                 }
                 tempBrush->Release();
             }
         }
+
         // 绘制圆心标记和坐标
         if (m_currentMode == DrawingMode::CENTER && m_showingCenter && m_selectedCircle) {
             ID2D1RenderTarget *pRenderTarget = m_graphicsEngine->GetRenderTarget();

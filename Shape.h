@@ -436,7 +436,7 @@ public:
             maxY = max(maxY, point.y);
         }
 
-        return D2D1::RectF(minX, minY, maxX, maxY);
+       return D2D1::RectF(minX, minY, maxX, maxY);
     }
 
     // ÀëÉ¢Ïß¶Îº¯Êý
