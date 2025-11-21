@@ -221,6 +221,152 @@ private:
     void CalculateBresenhamPixels(); // 计算Bresenham画线法像素点
 };
 
+// 中点画圆法圆形类
+class MidpointCircle : public Shape {
+public:
+    MidpointCircle(D2D1_POINT_2F center, float radius);
+
+    void Draw(ID2D1RenderTarget *pRenderTarget,
+              ID2D1SolidColorBrush *pBrush,
+              ID2D1SolidColorBrush *pSelectedBrush,
+              ID2D1StrokeStyle *pDashStrokeStyle) override;
+
+    bool HitTest(D2D1_POINT_2F point) override;
+    void Move(float dx, float dy) override;
+    void Rotate(float angle) override { /* 圆形旋转无意义 */ }
+    void Scale(float scale) override;
+
+    std::string Serialize() override;
+
+    D2D1_POINT_2F GetCenter() const override {
+        return m_center;
+    }
+    float GetRadius() const {
+        return m_radius;
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        return D2D1::RectF(
+            m_center.x - m_radius,
+            m_center.y - m_radius,
+            m_center.x + m_radius,
+            m_center.y + m_radius);
+    }
+
+    // 重写离散线段函数 - 将圆离散为多边形
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+        const int segmentsCount = 32;
+        std::vector<D2D1_POINT_2F> points;
+
+        for (int i = 0; i < segmentsCount; ++i) {
+            float angle = 2.0f * 3.14159265358979323846f * i / segmentsCount;
+            D2D1_POINT_2F point;
+            point.x = m_center.x + m_radius * cosf(angle);
+            point.y = m_center.y + m_radius * sinf(angle);
+            points.push_back(point);
+        }
+
+        for (int i = 0; i < segmentsCount; ++i) {
+            segments.push_back({points[i], points[(i + 1) % segmentsCount]});
+        }
+        return segments;
+    }
+
+    // 重写圆形相关函数
+    bool HasCircleProperties() const override {
+        return true;
+    }
+
+    bool GetCircleGeometry(D2D1_POINT_2F &center, float &radius) const override {
+        center = m_center;
+        radius = m_radius;
+        return true;
+    }
+
+    // 获取中点画圆法生成的像素点
+    std::vector<D2D1_POINT_2F> GetMidpointPixels() const;
+
+private:
+    D2D1_POINT_2F m_center;
+    float m_radius;
+    std::vector<D2D1_POINT_2F> m_pixels; // 存储中点画圆法生成的像素点
+    void CalculateMidpointPixels(); // 计算中点画圆法像素点
+};
+
+// Bresenham画圆法圆形类
+class BresenhamCircle : public Shape {
+public:
+    BresenhamCircle(D2D1_POINT_2F center, float radius);
+
+    void Draw(ID2D1RenderTarget *pRenderTarget,
+              ID2D1SolidColorBrush *pBrush,
+              ID2D1SolidColorBrush *pSelectedBrush,
+              ID2D1StrokeStyle *pDashStrokeStyle) override;
+
+    bool HitTest(D2D1_POINT_2F point) override;
+    void Move(float dx, float dy) override;
+    void Rotate(float angle) override { /* 圆形旋转无意义 */ }
+    void Scale(float scale) override;
+
+    std::string Serialize() override;
+
+    D2D1_POINT_2F GetCenter() const override {
+        return m_center;
+    }
+    float GetRadius() const {
+        return m_radius;
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        return D2D1::RectF(
+            m_center.x - m_radius,
+            m_center.y - m_radius,
+            m_center.x + m_radius,
+            m_center.y + m_radius);
+    }
+
+    // 重写离散线段函数 - 将圆离散为多边形
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+        const int segmentsCount = 32;
+        std::vector<D2D1_POINT_2F> points;
+
+        for (int i = 0; i < segmentsCount; ++i) {
+            float angle = 2.0f * 3.14159265358979323846f * i / segmentsCount;
+            D2D1_POINT_2F point;
+            point.x = m_center.x + m_radius * cosf(angle);
+            point.y = m_center.y + m_radius * sinf(angle);
+            points.push_back(point);
+        }
+
+        for (int i = 0; i < segmentsCount; ++i) {
+            segments.push_back({points[i], points[(i + 1) % segmentsCount]});
+        }
+        return segments;
+    }
+
+    // 重写圆形相关函数
+    bool HasCircleProperties() const override {
+        return true;
+    }
+
+    bool GetCircleGeometry(D2D1_POINT_2F &center, float &radius) const override {
+        center = m_center;
+        radius = m_radius;
+        return true;
+    }
+
+    // 获取Bresenham画圆法生成的像素点
+    std::vector<D2D1_POINT_2F> GetBresenhamPixels() const;
+
+private:
+    D2D1_POINT_2F m_center;
+    float m_radius;
+    std::vector<D2D1_POINT_2F> m_pixels; // 存储Bresenham画圆法生成的像素点
+    void CalculateBresenhamPixels(); // 计算Bresenham画圆法像素点
+};
+
 // 圆形类
 class Circle : public Shape {
 public:

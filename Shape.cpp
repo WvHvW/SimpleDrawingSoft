@@ -20,6 +20,16 @@ std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
         D2D1_POINT_2F start, end;
         iss >> start.x >> start.y >> end.x >> end.y;
         return std::make_shared<BresenhamLine>(start, end);
+    } else if (type == "MidpointCircle") {
+        D2D1_POINT_2F center;
+        float radius;
+        iss >> center.x >> center.y >> radius;
+        return std::make_shared<MidpointCircle>(center, radius);
+    } else if (type == "BresenhamCircle") {
+        D2D1_POINT_2F center;
+        float radius;
+        iss >> center.x >> center.y >> radius;
+        return std::make_shared<BresenhamCircle>(center, radius);
     } else if (type == "Circle") {
         D2D1_POINT_2F center;
         float radius;
@@ -414,6 +424,184 @@ std::string BresenhamLine::Serialize() {
 }
 
 std::vector<D2D1_POINT_2F> BresenhamLine::GetBresenhamPixels() const {
+    return m_pixels;
+}
+
+// MidpointCircle 实现
+MidpointCircle::MidpointCircle(D2D1_POINT_2F center, float radius) :
+    Shape(ShapeType::CIRCLE), m_center(center), m_radius(radius) {
+    CalculateMidpointPixels();
+}
+
+void MidpointCircle::CalculateMidpointPixels() {
+    m_pixels.clear();
+    
+    int r = static_cast<int>(m_radius);
+    int x = 0;
+    int y = r;
+    int d = 1 - r;  // 初始判别式
+    
+    // 添加8个对称点的辅助函数
+    auto addSymmetricPoints = [&](int px, int py) {
+        m_pixels.push_back(D2D1::Point2F(m_center.x + px, m_center.y + py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - px, m_center.y + py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x + px, m_center.y - py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - px, m_center.y - py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x + py, m_center.y + px));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - py, m_center.y + px));
+        m_pixels.push_back(D2D1::Point2F(m_center.x + py, m_center.y - px));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - py, m_center.y - px));
+    };
+    
+    addSymmetricPoints(x, y);
+    
+    while (x < y) {
+        if (d < 0) {
+            d += 2 * x + 3;
+        } else {
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+        x++;
+        addSymmetricPoints(x, y);
+    }
+}
+
+void MidpointCircle::Draw(ID2D1RenderTarget *pRenderTarget,
+                          ID2D1SolidColorBrush *pBrush,
+                          ID2D1SolidColorBrush *pSelectedBrush,
+                          ID2D1StrokeStyle *pDashStrokeStyle) {
+    if (!pRenderTarget || !pBrush || !pSelectedBrush) return;
+
+    ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
+    
+    // 绘制中点画圆法生成的像素点
+    for (const auto& pixel : m_pixels) {
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 1.0f, 1.0f);
+        pRenderTarget->FillEllipse(ellipse, currentBrush);
+    }
+    
+    // 如果选中，也绘制虚线框
+    if (m_isSelected && pDashStrokeStyle) {
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(m_center, m_radius, m_radius);
+        pRenderTarget->DrawEllipse(ellipse, currentBrush, 1.0f, pDashStrokeStyle);
+    }
+}
+
+bool MidpointCircle::HitTest(D2D1_POINT_2F point) {
+    float dx = point.x - m_center.x;
+    float dy = point.y - m_center.y;
+    float distance = sqrtf(dx * dx + dy * dy);
+    return fabsf(distance - m_radius) < 5.0f; // 5像素容差
+}
+
+void MidpointCircle::Move(float dx, float dy) {
+    m_center.x += dx;
+    m_center.y += dy;
+    CalculateMidpointPixels(); // 重新计算像素点
+}
+
+void MidpointCircle::Scale(float scale) {
+    m_radius *= scale;
+    CalculateMidpointPixels(); // 重新计算像素点
+}
+
+std::string MidpointCircle::Serialize() {
+    std::ostringstream oss;
+    oss << "MidpointCircle " << m_center.x << " " << m_center.y << " " << m_radius;
+    return oss.str();
+}
+
+std::vector<D2D1_POINT_2F> MidpointCircle::GetMidpointPixels() const {
+    return m_pixels;
+}
+
+// BresenhamCircle 实现
+BresenhamCircle::BresenhamCircle(D2D1_POINT_2F center, float radius) :
+    Shape(ShapeType::CIRCLE), m_center(center), m_radius(radius) {
+    CalculateBresenhamPixels();
+}
+
+void BresenhamCircle::CalculateBresenhamPixels() {
+    m_pixels.clear();
+    
+    int r = static_cast<int>(m_radius);
+    int x = 0;
+    int y = r;
+    int d = 3 - 2 * r;  // Bresenham判别式
+    
+    // 添加8个对称点的辅助函数
+    auto addSymmetricPoints = [&](int px, int py) {
+        m_pixels.push_back(D2D1::Point2F(m_center.x + px, m_center.y + py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - px, m_center.y + py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x + px, m_center.y - py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - px, m_center.y - py));
+        m_pixels.push_back(D2D1::Point2F(m_center.x + py, m_center.y + px));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - py, m_center.y + px));
+        m_pixels.push_back(D2D1::Point2F(m_center.x + py, m_center.y - px));
+        m_pixels.push_back(D2D1::Point2F(m_center.x - py, m_center.y - px));
+    };
+    
+    addSymmetricPoints(x, y);
+    
+    while (x <= y) {
+        x++;
+        if (d > 0) {
+            y--;
+            d = d + 4 * (x - y) + 10;
+        } else {
+            d = d + 4 * x + 6;
+        }
+        addSymmetricPoints(x, y);
+    }
+}
+
+void BresenhamCircle::Draw(ID2D1RenderTarget *pRenderTarget,
+                           ID2D1SolidColorBrush *pBrush,
+                           ID2D1SolidColorBrush *pSelectedBrush,
+                           ID2D1StrokeStyle *pDashStrokeStyle) {
+    if (!pRenderTarget || !pBrush || !pSelectedBrush) return;
+
+    ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
+    
+    // 绘制Bresenham画圆法生成的像素点
+    for (const auto& pixel : m_pixels) {
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 1.5f, 1.5f);
+        pRenderTarget->FillEllipse(ellipse, currentBrush);
+    }
+    
+    // 如果选中，也绘制虚线框
+    if (m_isSelected && pDashStrokeStyle) {
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(m_center, m_radius, m_radius);
+        pRenderTarget->DrawEllipse(ellipse, currentBrush, 1.0f, pDashStrokeStyle);
+    }
+}
+
+bool BresenhamCircle::HitTest(D2D1_POINT_2F point) {
+    float dx = point.x - m_center.x;
+    float dy = point.y - m_center.y;
+    float distance = sqrtf(dx * dx + dy * dy);
+    return fabsf(distance - m_radius) < 5.0f; // 5像素容差
+}
+
+void BresenhamCircle::Move(float dx, float dy) {
+    m_center.x += dx;
+    m_center.y += dy;
+    CalculateBresenhamPixels(); // 重新计算像素点
+}
+
+void BresenhamCircle::Scale(float scale) {
+    m_radius *= scale;
+    CalculateBresenhamPixels(); // 重新计算像素点
+}
+
+std::string BresenhamCircle::Serialize() {
+    std::ostringstream oss;
+    oss << "BresenhamCircle " << m_center.x << " " << m_center.y << " " << m_radius;
+    return oss.str();
+}
+
+std::vector<D2D1_POINT_2F> BresenhamCircle::GetBresenhamPixels() const {
     return m_pixels;
 }
 

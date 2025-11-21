@@ -27,7 +27,9 @@ enum class DrawingMode {
     CENTER,
     TANGENT,
     MIDPOINT_LINE,
-    BRESENHAM_LINE
+    BRESENHAM_LINE,
+    MIDPOINT_CIRCLE,
+    BRESENHAM_CIRCLE
 };
 
 enum class TransformMode {

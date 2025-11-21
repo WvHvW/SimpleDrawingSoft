@@ -221,6 +221,32 @@ void MainWindow::OnLButtonDown(int x, int y) {
         }
         break;
 
+    case DrawingMode::MIDPOINT_CIRCLE:
+        if (m_clickCount == 0) {
+            m_startPoint = currentPoint;
+            m_clickCount = 1;
+            m_isDrawing = true;
+            m_tempShape = std::make_shared<MidpointCircle>(m_startPoint, 0);
+        } else {
+            float radius = CalculateDistance(m_startPoint, currentPoint);
+            m_graphicsEngine->AddShape(std::make_shared<MidpointCircle>(m_startPoint, radius));
+            ResetDrawingState();
+        }
+        break;
+
+    case DrawingMode::BRESENHAM_CIRCLE:
+        if (m_clickCount == 0) {
+            m_startPoint = currentPoint;
+            m_clickCount = 1;
+            m_isDrawing = true;
+            m_tempShape = std::make_shared<BresenhamCircle>(m_startPoint, 0);
+        } else {
+            float radius = CalculateDistance(m_startPoint, currentPoint);
+            m_graphicsEngine->AddShape(std::make_shared<BresenhamCircle>(m_startPoint, radius));
+            ResetDrawingState();
+        }
+        break;
+
     case DrawingMode::CIRCLE:
         if (m_clickCount == 0) {
             m_startPoint = currentPoint;
@@ -477,6 +503,18 @@ void MainWindow::OnMouseMove(int x, int y) {
         case DrawingMode::BRESENHAM_LINE:
             m_tempShape = std::make_shared<BresenhamLine>(m_startPoint, currentPoint);
             break;
+
+        case DrawingMode::MIDPOINT_CIRCLE: {
+            float radius = CalculateDistance(m_startPoint, currentPoint);
+            m_tempShape = std::make_shared<MidpointCircle>(m_startPoint, radius);
+            break;
+        }
+
+        case DrawingMode::BRESENHAM_CIRCLE: {
+            float radius = CalculateDistance(m_startPoint, currentPoint);
+            m_tempShape = std::make_shared<BresenhamCircle>(m_startPoint, radius);
+            break;
+        }
 
         case DrawingMode::CIRCLE: {
             float radius = CalculateDistance(m_startPoint, currentPoint);
@@ -1154,6 +1192,8 @@ void MainWindow::OnPaint() {
         case DrawingMode::LINE: name = L"LINE"; break;
         case DrawingMode::MIDPOINT_LINE: name = L"MIDPOINT_LINE"; break;
         case DrawingMode::BRESENHAM_LINE: name = L"BRESENHAM_LINE"; break;
+        case DrawingMode::MIDPOINT_CIRCLE: name = L"MIDPOINT_CIRCLE"; break;
+        case DrawingMode::BRESENHAM_CIRCLE: name = L"BRESENHAM_CIRCLE"; break;
         case DrawingMode::CIRCLE: name = L"CIRCLE"; break;
         case DrawingMode::RECTANGLE: name = L"RECTANGLE"; break;
         case DrawingMode::TRIANGLE: name = L"TRIANGLE"; break;
@@ -1250,6 +1290,12 @@ void MainWindow::OnCommand(WPARAM wParam) {
         break;
     case 32793:
         m_currentMode = DrawingMode::BRESENHAM_LINE;
+        break;
+    case 32794:
+        m_currentMode = DrawingMode::MIDPOINT_CIRCLE;
+        break;
+    case 32795:
+        m_currentMode = DrawingMode::BRESENHAM_CIRCLE;
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }
