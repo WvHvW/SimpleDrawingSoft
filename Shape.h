@@ -101,6 +101,34 @@ protected:
             fillBrush->Release();
         }
     }
+    
+    // 填充像素变换辅助方法（供子类在变换时调用）
+    void TransformFillPixelsMove(float dx, float dy) {
+        for (auto& pixel : m_fillPixels) {
+            pixel.x += dx;
+            pixel.y += dy;
+        }
+    }
+    
+    void TransformFillPixelsRotate(float angle, const D2D1_POINT_2F& center) {
+        float s = sinf(angle);
+        float c = cosf(angle);
+        for (auto& pixel : m_fillPixels) {
+            float dx = pixel.x - center.x;
+            float dy = pixel.y - center.y;
+            pixel.x = center.x + dx * c - dy * s;
+            pixel.y = center.y + dx * s + dy * c;
+        }
+    }
+    
+    void TransformFillPixelsScale(float scale, const D2D1_POINT_2F& center) {
+        for (auto& pixel : m_fillPixels) {
+            float dx = pixel.x - center.x;
+            float dy = pixel.y - center.y;
+            pixel.x = center.x + dx * scale;
+            pixel.y = center.y + dy * scale;
+        }
+    }
 };
 
 // 直线类

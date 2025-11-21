@@ -692,12 +692,14 @@ bool MidpointCircle::HitTest(D2D1_POINT_2F point) {
 void MidpointCircle::Move(float dx, float dy) {
     m_center.x += dx;
     m_center.y += dy;
-    CalculateMidpointPixels(); // ÖØĞÂ¼ÆËãÏñËØµã
+    CalculateMidpointPixels(); // ÖØ¼ÆËãÏñËØµã
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 void MidpointCircle::Scale(float scale) {
     m_radius *= scale;
     CalculateMidpointPixels(); // ÖØĞÂ¼ÆËãÏñËØµã
+    TransformFillPixelsScale(scale, m_center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 std::string MidpointCircle::Serialize() {
@@ -831,12 +833,14 @@ bool BresenhamCircle::HitTest(D2D1_POINT_2F point) {
 void BresenhamCircle::Move(float dx, float dy) {
     m_center.x += dx;
     m_center.y += dy;
-    CalculateBresenhamPixels(); // ÖØĞÂ¼ÆËãÏñËØµã
+    CalculateBresenhamPixels(); // ÖØ¼ÆËãÏñËØµã
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 void BresenhamCircle::Scale(float scale) {
     m_radius *= scale;
     CalculateBresenhamPixels(); // ÖØĞÂ¼ÆËãÏñËØµã
+    TransformFillPixelsScale(scale, m_center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 std::string BresenhamCircle::Serialize() {
@@ -880,10 +884,12 @@ bool Circle::HitTest(D2D1_POINT_2F point) {
 void Circle::Move(float dx, float dy) {
     m_center.x += dx;
     m_center.y += dy;
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 void Circle::Scale(float scale) {
     m_radius *= scale;
+    TransformFillPixelsScale(scale, m_center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 std::string Circle::Serialize() {
@@ -952,6 +958,7 @@ void Rect::Move(float dx, float dy) {
         m_points[i].x += dx;
         m_points[i].y += dy;
     }
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 void Rect::Rotate(float angle) {
@@ -972,6 +979,7 @@ void Rect::Rotate(float angle) {
         m_points[i].x = newX + center.x;
         m_points[i].y = newY + center.y;
     }
+    TransformFillPixelsRotate(angle, center);  // Ğı×ªÌî³äÏñËØ
 }
 
 void Rect::Scale(float scale) {
@@ -980,6 +988,7 @@ void Rect::Scale(float scale) {
         m_points[i].x = center.x + (m_points[i].x - center.x) * scale;
         m_points[i].y = center.y + (m_points[i].y - center.y) * scale;
     }
+    TransformFillPixelsScale(scale, center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 std::string Rect::Serialize() {
@@ -1047,6 +1056,7 @@ void Triangle::Move(float dx, float dy) {
         m_points[i].x += dx;
         m_points[i].y += dy;
     }
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 void Triangle::Rotate(float angle) {
@@ -1071,6 +1081,7 @@ void Triangle::Rotate(float angle) {
         m_points[i].x = newX + center.x;
         m_points[i].y = newY + center.y;
     }
+    TransformFillPixelsRotate(angle, center);  // Ğı×ªÌî³äÏñËØ
 }
 
 void Triangle::Scale(float scale) {
@@ -1082,6 +1093,7 @@ void Triangle::Scale(float scale) {
         m_points[i].x = center.x + (m_points[i].x - center.x) * scale;
         m_points[i].y = center.y + (m_points[i].y - center.y) * scale;
     }
+    TransformFillPixelsScale(scale, center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 std::string Triangle::Serialize() {
@@ -1160,17 +1172,20 @@ bool Diamond::HitTest(D2D1_POINT_2F p) {
 void Diamond::Move(float dx, float dy) {
     m_center.x += dx;
     m_center.y += dy;
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 // Rotate
 void Diamond::Rotate(float angle) {
     m_angle += angle;
+    TransformFillPixelsRotate(angle, m_center);  // Ğı×ªÌî³äÏñËØ
 }
 
 // Scale
 void Diamond::Scale(float scale) {
     m_radiusX *= scale;
     m_radiusY *= scale;
+    TransformFillPixelsScale(scale, m_center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 // °üÎ§ºĞ
@@ -1267,6 +1282,7 @@ void Parallelogram::Move(float dx, float dy) {
         m_points[i].x += dx;
         m_points[i].y += dy;
     }
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 void Parallelogram::Rotate(float angle) {
@@ -1295,6 +1311,7 @@ void Parallelogram::Rotate(float angle) {
         m_points[i].x = newX + center.x;
         m_points[i].y = newY + center.y;
     }
+    TransformFillPixelsRotate(angle, center);  // Ğı×ªÌî³äÏñËØ
 }
 
 void Parallelogram::Scale(float scale) {
@@ -1310,6 +1327,7 @@ void Parallelogram::Scale(float scale) {
         m_points[i].x = center.x + (m_points[i].x - center.x) * scale;
         m_points[i].y = center.y + (m_points[i].y - center.y) * scale;
     }
+    TransformFillPixelsScale(scale, center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 std::string Parallelogram::Serialize() {
@@ -1612,6 +1630,7 @@ void Poly::Move(float dx, float dy) {
         point.x += dx;
         point.y += dy;
     }
+    TransformFillPixelsMove(dx, dy);  // ÒÆ¶¯Ìî³äÏñËØ
 }
 
 void Poly::Rotate(float angle) {
@@ -1640,6 +1659,7 @@ void Poly::Rotate(float angle) {
         point.x = newX + center.x;
         point.y = newY + center.y;
     }
+    TransformFillPixelsRotate(angle, center);  // Ğı×ªÌî³äÏñËØ
 }
 
 void Poly::Scale(float scale) {
@@ -1655,6 +1675,7 @@ void Poly::Scale(float scale) {
         point.x = center.x + (point.x - center.x) * scale;
         point.y = center.y + (point.y - center.y) * scale;
     }
+    TransformFillPixelsScale(scale, center);  // Ëõ·ÅÌî³äÏñËØ
 }
 
 void Poly::AddPoint(D2D1_POINT_2F point) {
