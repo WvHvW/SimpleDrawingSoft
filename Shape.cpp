@@ -14,6 +14,53 @@ namespace {
             pRenderTarget->FillEllipse(ellipse, pBrush);
         }
     }
+    
+    // 根据线型样式决定是否绘制某个位置的像素
+    bool ShouldDrawPixelForLineStyle(float distance, LineStyle lineStyle) {
+        const float dashLength = 8.0f;    // 虚线段长度
+        const float dotLength = 2.0f;     // 点的长度
+        const float gapLength = 4.0f;     // 间隔长度
+        
+        // 将距离转换为模式位置
+        float position = fmod(distance, dashLength + gapLength);
+        
+        switch (lineStyle) {
+            case LineStyle::SOLID:
+                return true;
+                
+            case LineStyle::DASH:
+                // 虚线：8像素线段 + 4像素间隔
+                return position < dashLength;
+                
+            case LineStyle::DOT:
+                // 点线：2像素点 + 4像素间隔
+                position = fmod(distance, dotLength + gapLength);
+                return position < dotLength;
+                
+            case LineStyle::DASH_DOT: {
+                // 点划线：8像素线段 + 2像素间隔 + 2像素点 + 2像素间隔
+                float pattern = dashLength + gapLength + dotLength + gapLength; // 16像素周期
+                position = fmod(distance, pattern);
+                if (position < dashLength) return true; // 线段部分
+                if (position >= dashLength + gapLength && position < dashLength + gapLength + dotLength) return true; // 点部分
+                return false;
+            }
+            
+            case LineStyle::DASH_DOT_DOT: {
+                // 双点划线：8像素线段 + 2像素间隔 + 2像素点 + 2像素间隔 + 2像素点 + 2像素间隔
+                float pattern = dashLength + gapLength + dotLength + gapLength + dotLength + gapLength; // 20像素周期
+                position = fmod(distance, pattern);
+                if (position < dashLength) return true; // 线段部分
+                if (position >= dashLength + gapLength && position < dashLength + gapLength + dotLength) return true; // 第一个点
+                if (position >= dashLength + gapLength + dotLength + gapLength && 
+                    position < dashLength + gapLength + dotLength + gapLength + dotLength) return true; // 第二个点
+                return false;
+            }
+            
+            default:
+                return true;
+        }
+    }
 }
 
 std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
@@ -266,12 +313,28 @@ void MidpointLine::Draw(ID2D1RenderTarget *pRenderTarget,
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
     int lineWidth = GetLineWidthValue();
     
-    // 对于中点画线法，我们结合像素点绘制和线型样式
-    // 首先绘制中点画线法生成的像素点（显示算法效果）
+    // 对于中点画线法，我们让算法生成的每个像素点都根据线型模式来决定是否绘制
+    
+    // 计算线段的总长度和方向
+    float lineLength = sqrtf((m_end.x - m_start.x) * (m_end.x - m_start.x) + 
+                            (m_end.y - m_start.y) * (m_end.y - m_start.y));
+    
     if (lineWidth == 1) {
         for (const auto& pixel : m_pixels) {
-            D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.5f, 0.5f);
-            pRenderTarget->FillEllipse(ellipse, currentBrush);
+            // 计算当前像素在线段上的位置比例
+            float pixelDistance = sqrtf((pixel.x - m_start.x) * (pixel.x - m_start.x) + 
+                                      (pixel.y - m_start.y) * (pixel.y - m_start.y));
+            
+            // 根据线型样式决定是否绘制这个像素
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(pixelDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.8f, 0.8f);
+                pRenderTarget->FillEllipse(ellipse, currentBrush);
+            }
         }
     } else {
         // 线宽大于1时，为每个像素点扩展
@@ -279,29 +342,27 @@ void MidpointLine::Draw(ID2D1RenderTarget *pRenderTarget,
         float halfWidth = lineWidth / 2.0f;
         
         for (const auto& pixel : m_pixels) {
-            for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
-                for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
-                    if (dx * dx + dy * dy <= halfWidth * halfWidth) {
-                        expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+            // 计算当前像素在线段上的位置
+            float pixelDistance = sqrtf((pixel.x - m_start.x) * (pixel.x - m_start.x) + 
+                                      (pixel.y - m_start.y) * (pixel.y - m_start.y));
+            
+            // 根据线型样式决定是否绘制这个像素区域
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(pixelDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
+                    for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
+                        if (dx * dx + dy * dy <= halfWidth * halfWidth) {
+                            expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+                        }
                     }
                 }
             }
         }
         DrawPixels(pRenderTarget, currentBrush, expandedPixels);
-    }
-    
-    // 如果有线型样式（非实线），在像素点基础上叠加线型效果
-    if (pStrokeStyle) {
-        // 创建半透明画笔用于叠加线型效果
-        ID2D1SolidColorBrush *overlayBrush = nullptr;
-        D2D1_COLOR_F overlayColor = currentBrush->GetColor();
-        overlayColor.a = 0.7f; // 半透明
-        pRenderTarget->CreateSolidColorBrush(overlayColor, &overlayBrush);
-        
-        if (overlayBrush) {
-            pRenderTarget->DrawLine(m_start, m_end, overlayBrush, (float)lineWidth, pStrokeStyle);
-            overlayBrush->Release();
-        }
     }
 }
 
@@ -405,12 +466,28 @@ void BresenhamLine::Draw(ID2D1RenderTarget *pRenderTarget,
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
     int lineWidth = GetLineWidthValue();
     
-    // 对于Bresenham画线法，我们结合像素点绘制和线型样式
-    // 首先绘制Bresenham画线法生成的像素点（显示算法效果）
+    // 对于Bresenham画线法，我们让算法生成的每个像素点都根据线型模式来决定是否绘制
+    
+    // 计算线段的总长度和方向
+    float lineLength = sqrtf((m_end.x - m_start.x) * (m_end.x - m_start.x) + 
+                            (m_end.y - m_start.y) * (m_end.y - m_start.y));
+    
     if (lineWidth == 1) {
         for (const auto& pixel : m_pixels) {
-            D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.5f, 0.5f);
-            pRenderTarget->FillEllipse(ellipse, currentBrush);
+            // 计算当前像素在线段上的位置比例
+            float pixelDistance = sqrtf((pixel.x - m_start.x) * (pixel.x - m_start.x) + 
+                                      (pixel.y - m_start.y) * (pixel.y - m_start.y));
+            
+            // 根据线型样式决定是否绘制这个像素
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(pixelDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.8f, 0.8f);
+                pRenderTarget->FillEllipse(ellipse, currentBrush);
+            }
         }
     } else {
         // 线宽大于1时，为每个像素点扩展
@@ -418,29 +495,27 @@ void BresenhamLine::Draw(ID2D1RenderTarget *pRenderTarget,
         float halfWidth = lineWidth / 2.0f;
         
         for (const auto& pixel : m_pixels) {
-            for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
-                for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
-                    if (dx * dx + dy * dy <= halfWidth * halfWidth) {
-                        expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+            // 计算当前像素在线段上的位置
+            float pixelDistance = sqrtf((pixel.x - m_start.x) * (pixel.x - m_start.x) + 
+                                      (pixel.y - m_start.y) * (pixel.y - m_start.y));
+            
+            // 根据线型样式决定是否绘制这个像素区域
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(pixelDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
+                    for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
+                        if (dx * dx + dy * dy <= halfWidth * halfWidth) {
+                            expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+                        }
                     }
                 }
             }
         }
         DrawPixels(pRenderTarget, currentBrush, expandedPixels);
-    }
-    
-    // 如果有线型样式（非实线），在像素点基础上叠加线型效果
-    if (pStrokeStyle) {
-        // 创建半透明画笔用于叠加线型效果
-        ID2D1SolidColorBrush *overlayBrush = nullptr;
-        D2D1_COLOR_F overlayColor = currentBrush->GetColor();
-        overlayColor.a = 0.7f; // 半透明
-        pRenderTarget->CreateSolidColorBrush(overlayColor, &overlayBrush);
-        
-        if (overlayBrush) {
-            pRenderTarget->DrawLine(m_start, m_end, overlayBrush, (float)lineWidth, pStrokeStyle);
-            overlayBrush->Release();
-        }
     }
 }
 
@@ -545,12 +620,29 @@ void MidpointCircle::Draw(ID2D1RenderTarget *pRenderTarget,
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
     int lineWidth = GetLineWidthValue();
     
-    // 对于中点画圆法，我们结合像素点绘制和线型样式
-    // 首先绘制中点画圆法生成的像素点（显示算法效果）
+    // 对于中点画圆法，我们让算法生成的每个像素点都根据线型模式来决定是否绘制
+    
     if (lineWidth == 1) {
         for (const auto& pixel : m_pixels) {
-            D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.5f, 0.5f);
-            pRenderTarget->FillEllipse(ellipse, currentBrush);
+            // 计算当前像素相对于圆心的角度
+            float dx = pixel.x - m_center.x;
+            float dy = pixel.y - m_center.y;
+            float angle = atan2f(dy, dx);
+            if (angle < 0) angle += 2.0f * 3.14159f; // 转换为0-2π范围
+            
+            // 将角度转换为圆周上的弧长距离
+            float arcDistance = angle * m_radius;
+            
+            // 根据线型样式决定是否绘制这个像素
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(arcDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.8f, 0.8f);
+                pRenderTarget->FillEllipse(ellipse, currentBrush);
+            }
         }
     } else {
         // 线宽大于1时，为每个像素点扩展
@@ -558,30 +650,32 @@ void MidpointCircle::Draw(ID2D1RenderTarget *pRenderTarget,
         float halfWidth = lineWidth / 2.0f;
         
         for (const auto& pixel : m_pixels) {
-            for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
-                for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
-                    if (dx * dx + dy * dy <= halfWidth * halfWidth) {
-                        expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+            // 计算当前像素相对于圆心的角度
+            float dx = pixel.x - m_center.x;
+            float dy = pixel.y - m_center.y;
+            float angle = atan2f(dy, dx);
+            if (angle < 0) angle += 2.0f * 3.14159f; // 转换为0-2π范围
+            
+            // 将角度转换为圆周上的弧长距离
+            float arcDistance = angle * m_radius;
+            
+            // 根据线型样式决定是否绘制这个像素区域
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(arcDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
+                    for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
+                        if (dx * dx + dy * dy <= halfWidth * halfWidth) {
+                            expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+                        }
                     }
                 }
             }
         }
         DrawPixels(pRenderTarget, currentBrush, expandedPixels);
-    }
-    
-    // 如果有线型样式（非实线），在像素点基础上叠加线型效果
-    if (pStrokeStyle) {
-        // 创建半透明画笔用于叠加线型效果
-        ID2D1SolidColorBrush *overlayBrush = nullptr;
-        D2D1_COLOR_F overlayColor = currentBrush->GetColor();
-        overlayColor.a = 0.7f; // 半透明
-        pRenderTarget->CreateSolidColorBrush(overlayColor, &overlayBrush);
-        
-        if (overlayBrush) {
-            D2D1_ELLIPSE ellipse = D2D1::Ellipse(m_center, m_radius, m_radius);
-            pRenderTarget->DrawEllipse(ellipse, overlayBrush, (float)lineWidth, pStrokeStyle);
-            overlayBrush->Release();
-        }
     }
 }
 
@@ -662,12 +756,29 @@ void BresenhamCircle::Draw(ID2D1RenderTarget *pRenderTarget,
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
     int lineWidth = GetLineWidthValue();
     
-    // 对于Bresenham画圆法，我们结合像素点绘制和线型样式
-    // 首先绘制Bresenham画圆法生成的像素点（显示算法效果）
+    // 对于Bresenham画圆法，我们让算法生成的每个像素点都根据线型模式来决定是否绘制
+    
     if (lineWidth == 1) {
         for (const auto& pixel : m_pixels) {
-            D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.5f, 0.5f);
-            pRenderTarget->FillEllipse(ellipse, currentBrush);
+            // 计算当前像素相对于圆心的角度
+            float dx = pixel.x - m_center.x;
+            float dy = pixel.y - m_center.y;
+            float angle = atan2f(dy, dx);
+            if (angle < 0) angle += 2.0f * 3.14159f; // 转换为0-2π范围
+            
+            // 将角度转换为圆周上的弧长距离
+            float arcDistance = angle * m_radius;
+            
+            // 根据线型样式决定是否绘制这个像素
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(arcDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 0.8f, 0.8f);
+                pRenderTarget->FillEllipse(ellipse, currentBrush);
+            }
         }
     } else {
         // 线宽大于1时，为每个像素点扩展
@@ -675,30 +786,32 @@ void BresenhamCircle::Draw(ID2D1RenderTarget *pRenderTarget,
         float halfWidth = lineWidth / 2.0f;
         
         for (const auto& pixel : m_pixels) {
-            for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
-                for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
-                    if (dx * dx + dy * dy <= halfWidth * halfWidth) {
-                        expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+            // 计算当前像素相对于圆心的角度
+            float dx = pixel.x - m_center.x;
+            float dy = pixel.y - m_center.y;
+            float angle = atan2f(dy, dx);
+            if (angle < 0) angle += 2.0f * 3.14159f; // 转换为0-2π范围
+            
+            // 将角度转换为圆周上的弧长距离
+            float arcDistance = angle * m_radius;
+            
+            // 根据线型样式决定是否绘制这个像素区域
+            bool shouldDraw = true;
+            if (pStrokeStyle && GetLineStyle() != LineStyle::SOLID) {
+                shouldDraw = ShouldDrawPixelForLineStyle(arcDistance, GetLineStyle());
+            }
+            
+            if (shouldDraw) {
+                for (int dy = -static_cast<int>(halfWidth); dy <= static_cast<int>(halfWidth); ++dy) {
+                    for (int dx = -static_cast<int>(halfWidth); dx <= static_cast<int>(halfWidth); ++dx) {
+                        if (dx * dx + dy * dy <= halfWidth * halfWidth) {
+                            expandedPixels.push_back({pixel.x + dx, pixel.y + dy});
+                        }
                     }
                 }
             }
         }
         DrawPixels(pRenderTarget, currentBrush, expandedPixels);
-    }
-    
-    // 如果有线型样式（非实线），在像素点基础上叠加线型效果
-    if (pStrokeStyle) {
-        // 创建半透明画笔用于叠加线型效果
-        ID2D1SolidColorBrush *overlayBrush = nullptr;
-        D2D1_COLOR_F overlayColor = currentBrush->GetColor();
-        overlayColor.a = 0.7f; // 半透明
-        pRenderTarget->CreateSolidColorBrush(overlayColor, &overlayBrush);
-        
-        if (overlayBrush) {
-            D2D1_ELLIPSE ellipse = D2D1::Ellipse(m_center, m_radius, m_radius);
-            pRenderTarget->DrawEllipse(ellipse, overlayBrush, (float)lineWidth, pStrokeStyle);
-            overlayBrush->Release();
-        }
     }
 }
 
