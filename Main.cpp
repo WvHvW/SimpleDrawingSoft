@@ -400,6 +400,7 @@ void MainWindow::OnLButtonDown(int x, int y) {
         if (!m_isDrawingMultiBezier) {
             // 开始绘制新的多点Bezier曲线
             m_currentMultiBezier = std::make_shared<MultiBezier>();
+            m_currentMultiBezier->SetEditing(true);  // 设置为编辑状态
             m_currentMultiBezier->AddControlPoint(currentPoint);
             m_isDrawingMultiBezier = true;
             OutputDebugStringA("开始绘制多点Bezier曲线，添加第一个控制点\n");
@@ -679,7 +680,8 @@ void MainWindow::OnMouseMove(int x, int y) {
 
     // 多点Bezier曲线模式：实时预览鼠标移动
     if (m_currentMode == DrawingMode::MULTI_BEZIER && m_isDrawingMultiBezier && m_currentMultiBezier) {
-        // 无需特殊处理，OnPaint会自动绘制当前曲线
+        // 更新预览点为当前鼠标位置
+        m_currentMultiBezier->SetPreviewPoint(currentPoint);
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 
@@ -765,6 +767,8 @@ void MainWindow::ResetCenterState() {
 void MainWindow::OnRButtonDown(int x, int y) {
     // 右键完成多点Bezier曲线绘制
     if (m_isDrawingMultiBezier && m_currentMultiBezier) {
+        m_currentMultiBezier->ClearPreviewPoint();  // 清除预览点
+        m_currentMultiBezier->SetEditing(false);     // 清除编辑状态
         if (m_currentMultiBezier->GetControlPoints().size() >= 4) {
             m_graphicsEngine->AddShape(m_currentMultiBezier);
             OutputDebugStringA("多点Bezier曲线绘制完成\n");

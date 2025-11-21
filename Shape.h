@@ -837,6 +837,15 @@ public:
     void AddControlPoint(D2D1_POINT_2F point);
     const std::vector<D2D1_POINT_2F>& GetControlPoints() const { return m_controlPoints; }
     
+    // 设置/清除预览点（用于实时预览）
+    void SetPreviewPoint(D2D1_POINT_2F point) { m_previewPoint = point; m_hasPreview = true; }
+    void ClearPreviewPoint() { m_hasPreview = false; }
+    bool HasPreviewPoint() const { return m_hasPreview; }
+    
+    // 设置是否处于编辑状态（控制点只在编辑时显示）
+    void SetEditing(bool editing) { m_isEditing = editing; }
+    bool IsEditing() const { return m_isEditing; }
+    
     // 获取曲线段数量（每4个控制点形成一段三次Bezier曲线）
     int GetSegmentCount() const { return static_cast<int>((m_controlPoints.size() - 1) / 3); }
     
@@ -846,6 +855,9 @@ public:
     
 private:
     std::vector<D2D1_POINT_2F> m_controlPoints;  // 控制点序列
+    D2D1_POINT_2F m_previewPoint;                // 预览点（鼠标位置）
+    bool m_hasPreview = false;                   // 是否有预览点
+    bool m_isEditing = false;                    // 是否处于编辑状态
     static const int CURVE_FLATTEN_SEGS = 32;     // 每段曲线的细分数
     
     // 计算单段三次Bezier曲线在参数t处的点

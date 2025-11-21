@@ -1696,6 +1696,37 @@ void MultiBezier::Draw(ID2D1RenderTarget *pRenderTarget,
                        ID2D1SolidColorBrush *pSelectedBrush,
                        ID2D1StrokeStyle *pDashStrokeStyle) {
     if (!pRenderTarget || !pNormalBrush || !pSelectedBrush) return;
+    
+    // 只在编辑状态下绘制控制点和预览
+    if (m_isEditing) {
+        // 绘制已有的控制点（用小圆圈标记）
+        ID2D1SolidColorBrush *controlBrush = nullptr;
+        pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Red, 0.7f), &controlBrush);
+        if (controlBrush) {
+            for (const auto& point : m_controlPoints) {
+                D2D1_ELLIPSE ellipse = D2D1::Ellipse(point, 4.0f, 4.0f);
+                pRenderTarget->FillEllipse(ellipse, controlBrush);
+            }
+            controlBrush->Release();
+        }
+        
+        // 绘制预览线段（从最后一个点到鼠标位置）
+        if (m_hasPreview && !m_controlPoints.empty()) {
+            ID2D1SolidColorBrush *previewBrush = nullptr;
+            pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Gray, 0.5f), &previewBrush);
+            if (previewBrush) {
+                pRenderTarget->DrawLine(m_controlPoints.back(), m_previewPoint, previewBrush, 1.0f, pDashStrokeStyle);
+                
+                // 绘制预览点
+                D2D1_ELLIPSE previewEllipse = D2D1::Ellipse(m_previewPoint, 3.0f, 3.0f);
+                pRenderTarget->DrawEllipse(previewEllipse, previewBrush, 1.0f);
+                
+                previewBrush->Release();
+            }
+        }
+    }
+    
+    // 如果控制点不足4个，只绘制控制点和预览，不绘制曲线
     if (m_controlPoints.size() < 4) return;
     
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pNormalBrush;
