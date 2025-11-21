@@ -4,7 +4,8 @@
 #include <cmath>
 
 GraphicsEngine::GraphicsEngine() :
-    m_hwnd(nullptr), m_pD2DFactory(nullptr), m_pRenderTarget(nullptr), m_pNormalBrush(nullptr), m_pSelectedBrush(nullptr), m_pDWriteFactory(nullptr), m_currentMode(DrawingMode::SELECT) {
+    m_hwnd(nullptr), m_pD2DFactory(nullptr), m_pRenderTarget(nullptr), m_pNormalBrush(nullptr), m_pSelectedBrush(nullptr), m_pDWriteFactory(nullptr), m_currentMode(DrawingMode::SELECT),
+    m_pStrokeStyle(nullptr), m_pSolidStrokeStyle(nullptr), m_pDashStrokeStyle(nullptr), m_pDotStrokeStyle(nullptr), m_pDashDotStrokeStyle(nullptr), m_pDashDotDotStrokeStyle(nullptr) {
 }
 
 GraphicsEngine::~GraphicsEngine() {
@@ -46,7 +47,91 @@ HRESULT GraphicsEngine::CreateDeviceResources() {
         }
 
         if (SUCCEEDED(hr)) {
-            // 虚线
+            // 创建实线样式
+            hr = m_pD2DFactory->CreateStrokeStyle(
+                D2D1::StrokeStyleProperties(
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_LINE_JOIN_MITER,
+                    10.0f,
+                    D2D1_DASH_STYLE_SOLID,
+                    0.0f),
+                nullptr,
+                0,
+                &m_pSolidStrokeStyle);
+        }
+
+        if (SUCCEEDED(hr)) {
+            // 创建虚线样式
+            FLOAT dashes[] = {5.0f, 5.0f};
+            hr = m_pD2DFactory->CreateStrokeStyle(
+                D2D1::StrokeStyleProperties(
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_LINE_JOIN_MITER,
+                    10.0f,
+                    D2D1_DASH_STYLE_CUSTOM,
+                    0.0f),
+                dashes,
+                ARRAYSIZE(dashes),
+                &m_pDashStrokeStyle);
+        }
+
+        if (SUCCEEDED(hr)) {
+            // 创建点线样式
+            FLOAT dots[] = {1.0f, 3.0f};
+            hr = m_pD2DFactory->CreateStrokeStyle(
+                D2D1::StrokeStyleProperties(
+                    D2D1_CAP_STYLE_ROUND,
+                    D2D1_CAP_STYLE_ROUND,
+                    D2D1_CAP_STYLE_ROUND,
+                    D2D1_LINE_JOIN_MITER,
+                    10.0f,
+                    D2D1_DASH_STYLE_CUSTOM,
+                    0.0f),
+                dots,
+                ARRAYSIZE(dots),
+                &m_pDotStrokeStyle);
+        }
+
+        if (SUCCEEDED(hr)) {
+            // 创建点划线样式（长划线-点-长划线）
+            FLOAT dashDot[] = {8.0f, 3.0f, 1.0f, 3.0f};
+            hr = m_pD2DFactory->CreateStrokeStyle(
+                D2D1::StrokeStyleProperties(
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_ROUND,
+                    D2D1_LINE_JOIN_MITER,
+                    10.0f,
+                    D2D1_DASH_STYLE_CUSTOM,
+                    0.0f),
+                dashDot,
+                ARRAYSIZE(dashDot),
+                &m_pDashDotStrokeStyle);
+        }
+
+        if (SUCCEEDED(hr)) {
+            // 创建双点划线样式（长划线-点-点-长划线）
+            FLOAT dashDotDot[] = {8.0f, 3.0f, 1.0f, 3.0f, 1.0f, 3.0f};
+            hr = m_pD2DFactory->CreateStrokeStyle(
+                D2D1::StrokeStyleProperties(
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_FLAT,
+                    D2D1_CAP_STYLE_ROUND,
+                    D2D1_LINE_JOIN_MITER,
+                    10.0f,
+                    D2D1_DASH_STYLE_CUSTOM,
+                    0.0f),
+                dashDotDot,
+                ARRAYSIZE(dashDotDot),
+                &m_pDashDotDotStrokeStyle);
+        }
+
+        // 保持原有的虚线样式作为默认选择样式
+        if (SUCCEEDED(hr)) {
             FLOAT dashes[] = {2.0f, 2.0f};
             hr = m_pD2DFactory->CreateStrokeStyle(
                 D2D1::StrokeStyleProperties(
@@ -80,7 +165,11 @@ void GraphicsEngine::Render() {
     m_pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
 
     for (auto &shape : m_shapes) {
-        shape->Draw(m_pRenderTarget, m_pNormalBrush, m_pSelectedBrush, m_pStrokeStyle);
+        // 获取形状的线型样式
+        ID2D1StrokeStyle* shapeStrokeStyle = GetStrokeStyle(shape->GetLineStyle());
+        // 如果形状被选中，使用选择样式，否则使用形状自己的线型样式
+        ID2D1StrokeStyle* strokeStyleToUse = shape->IsSelected() ? m_pStrokeStyle : shapeStrokeStyle;
+        shape->Draw(m_pRenderTarget, m_pNormalBrush, m_pSelectedBrush, strokeStyleToUse);
     }
 }
 
@@ -92,6 +181,30 @@ void GraphicsEngine::Cleanup() {
     if (m_pSelectedBrush) {
         m_pSelectedBrush->Release();
         m_pSelectedBrush = nullptr;
+    }
+    if (m_pStrokeStyle) {
+        m_pStrokeStyle->Release();
+        m_pStrokeStyle = nullptr;
+    }
+    if (m_pSolidStrokeStyle) {
+        m_pSolidStrokeStyle->Release();
+        m_pSolidStrokeStyle = nullptr;
+    }
+    if (m_pDashStrokeStyle) {
+        m_pDashStrokeStyle->Release();
+        m_pDashStrokeStyle = nullptr;
+    }
+    if (m_pDotStrokeStyle) {
+        m_pDotStrokeStyle->Release();
+        m_pDotStrokeStyle = nullptr;
+    }
+    if (m_pDashDotStrokeStyle) {
+        m_pDashDotStrokeStyle->Release();
+        m_pDashDotStrokeStyle = nullptr;
+    }
+    if (m_pDashDotDotStrokeStyle) {
+        m_pDashDotDotStrokeStyle->Release();
+        m_pDashDotDotStrokeStyle = nullptr;
     }
     if (m_pRenderTarget) {
         m_pRenderTarget->Release();
@@ -281,4 +394,21 @@ std::shared_ptr<Shape> GraphicsEngine::getFirstIntersectionShape() const {
 
 std::shared_ptr<Shape> GraphicsEngine::getSecondIntersectionShape() const {
     return IntersectionManager::getInstance().getSecondShape();
+}
+
+ID2D1StrokeStyle* GraphicsEngine::GetStrokeStyle(LineStyle lineStyle) {
+    switch (lineStyle) {
+        case LineStyle::SOLID:
+            return m_pSolidStrokeStyle;
+        case LineStyle::DASH:
+            return m_pDashStrokeStyle;
+        case LineStyle::DOT:
+            return m_pDotStrokeStyle;
+        case LineStyle::DASH_DOT:
+            return m_pDashDotStrokeStyle;
+        case LineStyle::DASH_DOT_DOT:
+            return m_pDashDotDotStrokeStyle;
+        default:
+            return m_pSolidStrokeStyle;
+    }
 }

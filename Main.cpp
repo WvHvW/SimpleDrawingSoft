@@ -23,6 +23,8 @@ private:
     HWND m_hwnd;
     std::unique_ptr<GraphicsEngine> m_graphicsEngine;
     DrawingMode m_currentMode = DrawingMode::SELECT;
+    LineWidth m_currentLineWidth = LineWidth::WIDTH_1PX;
+    LineStyle m_currentLineStyle = LineStyle::SOLID;
     D2D1_POINT_2F m_startPoint, m_endPoint, m_midPoint;
     bool m_isDrawing = false;
     std::vector<D2D1_POINT_2F> m_polyPoints;
@@ -192,7 +194,10 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_isDrawing = true;
             m_tempShape = std::make_shared<Line>(m_startPoint, currentPoint);
         } else {
-            m_graphicsEngine->AddShape(std::make_shared<Line>(m_startPoint, currentPoint));
+            auto line = std::make_shared<Line>(m_startPoint, currentPoint);
+            line->SetLineWidth(m_currentLineWidth);
+            line->SetLineStyle(m_currentLineStyle);
+            m_graphicsEngine->AddShape(line);
             ResetDrawingState();
         }
         break;
@@ -204,7 +209,10 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_isDrawing = true;
             m_tempShape = std::make_shared<MidpointLine>(m_startPoint, currentPoint);
         } else {
-            m_graphicsEngine->AddShape(std::make_shared<MidpointLine>(m_startPoint, currentPoint));
+            auto line = std::make_shared<MidpointLine>(m_startPoint, currentPoint);
+            line->SetLineWidth(m_currentLineWidth);
+            line->SetLineStyle(m_currentLineStyle);
+            m_graphicsEngine->AddShape(line);
             ResetDrawingState();
         }
         break;
@@ -216,7 +224,10 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_isDrawing = true;
             m_tempShape = std::make_shared<BresenhamLine>(m_startPoint, currentPoint);
         } else {
-            m_graphicsEngine->AddShape(std::make_shared<BresenhamLine>(m_startPoint, currentPoint));
+            auto line = std::make_shared<BresenhamLine>(m_startPoint, currentPoint);
+            line->SetLineWidth(m_currentLineWidth);
+            line->SetLineStyle(m_currentLineStyle);
+            m_graphicsEngine->AddShape(line);
             ResetDrawingState();
         }
         break;
@@ -229,7 +240,10 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_tempShape = std::make_shared<MidpointCircle>(m_startPoint, 0);
         } else {
             float radius = CalculateDistance(m_startPoint, currentPoint);
-            m_graphicsEngine->AddShape(std::make_shared<MidpointCircle>(m_startPoint, radius));
+            auto circle = std::make_shared<MidpointCircle>(m_startPoint, radius);
+            circle->SetLineWidth(m_currentLineWidth);
+            circle->SetLineStyle(m_currentLineStyle);
+            m_graphicsEngine->AddShape(circle);
             ResetDrawingState();
         }
         break;
@@ -242,7 +256,10 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_tempShape = std::make_shared<BresenhamCircle>(m_startPoint, 0);
         } else {
             float radius = CalculateDistance(m_startPoint, currentPoint);
-            m_graphicsEngine->AddShape(std::make_shared<BresenhamCircle>(m_startPoint, radius));
+            auto circle = std::make_shared<BresenhamCircle>(m_startPoint, radius);
+            circle->SetLineWidth(m_currentLineWidth);
+            circle->SetLineStyle(m_currentLineStyle);
+            m_graphicsEngine->AddShape(circle);
             ResetDrawingState();
         }
         break;
@@ -255,7 +272,10 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_tempShape = std::make_shared<Circle>(m_startPoint, 0);
         } else {
             float radius = CalculateDistance(m_startPoint, currentPoint);
-            m_graphicsEngine->AddShape(std::make_shared<Circle>(m_startPoint, radius));
+            auto circle = std::make_shared<Circle>(m_startPoint, radius);
+            circle->SetLineWidth(m_currentLineWidth);
+            circle->SetLineStyle(m_currentLineStyle);
+            m_graphicsEngine->AddShape(circle);
             ResetDrawingState();
         }
         break;
@@ -692,7 +712,44 @@ void MainWindow::OnRButtonDown(int x, int y) {
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
+
 void MainWindow::OnKeyDown(WPARAM wParam) {
+    // 测试线宽功能的键盘快捷键
+    if (wParam >= '1' && wParam <= '5') {
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    LineWidth newWidth;
+                    switch (wParam) {
+                        case '1': newWidth = LineWidth::WIDTH_1PX; break;
+                        case '2': newWidth = LineWidth::WIDTH_2PX; break;
+                        case '3': newWidth = LineWidth::WIDTH_4PX; break;
+                        case '4': newWidth = LineWidth::WIDTH_8PX; break;
+                        case '5': newWidth = LineWidth::WIDTH_16PX; break;
+                    }
+                    selectedShape->SetLineWidth(newWidth);
+                    m_currentLineWidth = newWidth;
+                    
+                    char debugMsg[100];
+                    sprintf_s(debugMsg, "Line width set to %dpx via keyboard\n", static_cast<int>(newWidth));
+                    OutputDebugStringA(debugMsg);
+                    
+                    InvalidateRect(m_hwnd, nullptr, FALSE);
+                    return;
+                }
+            }
+        }
+    }
+    
+    // 按C键清除所有选择，确保图形显示为黑色
+    if (wParam == 'C') {
+        m_graphicsEngine->ClearSelection();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        OutputDebugStringA("All selections cleared\n");
+        return;
+    }
     const float MOVE_STEP = 5.0f;   // 移动步长
     const float ROTATE_STEP = 0.1f; // 旋转步长
     const float SCALE_STEP = 0.1f;  // 缩放步长
@@ -1297,12 +1354,130 @@ void MainWindow::OnCommand(WPARAM wParam) {
     case 32795:
         m_currentMode = DrawingMode::BRESENHAM_CIRCLE;
         break;
+    // 线宽菜单项 - 应用到选中的图形
+    case 32799: 
+        m_currentLineWidth = LineWidth::WIDTH_1PX; 
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                // 支持所有类型的直线和圆形
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineWidth(m_currentLineWidth);
+                    OutputDebugStringA("Line width set to 1PX\n");
+                }
+            }
+        }
+        break;
+    case 32800: 
+        m_currentLineWidth = LineWidth::WIDTH_2PX; 
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineWidth(m_currentLineWidth);
+                }
+            }
+        }
+        break;
+    case 32801: 
+        m_currentLineWidth = LineWidth::WIDTH_4PX; 
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineWidth(m_currentLineWidth);
+                }
+            }
+        }
+        break;
+    case 32802: 
+        m_currentLineWidth = LineWidth::WIDTH_8PX; 
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineWidth(m_currentLineWidth);
+                }
+            }
+        }
+        break;
+    case 32803: 
+        m_currentLineWidth = LineWidth::WIDTH_16PX; 
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineWidth(m_currentLineWidth);
+                }
+            }
+        }
+        break;
+    case 32806: // 实线线型
+        m_currentLineStyle = LineStyle::SOLID;
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineStyle(m_currentLineStyle);
+                }
+            }
+        }
+        break;
+    case 32807: // 点划线（长划线-点-长划线）型
+        m_currentLineStyle = LineStyle::DASH_DOT;
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineStyle(m_currentLineStyle);
+                }
+            }
+        }
+        break;
+    case 32808: // 虚线型
+        m_currentLineStyle = LineStyle::DASH;
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineStyle(m_currentLineStyle);
+                }
+            }
+        }
+        break;
+    case 32809: // 点线型
+        m_currentLineStyle = LineStyle::DOT;
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineStyle(m_currentLineStyle);
+                }
+            }
+        }
+        break;
+    case 32810: // 双点划线型
+        m_currentLineStyle = LineStyle::DASH_DOT_DOT;
+        if (m_graphicsEngine->IsShapeSelected()) {
+            auto selectedShape = m_graphicsEngine->GetSelectedShape();
+            if (selectedShape) {
+                ShapeType type = selectedShape->GetType();
+                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
+                    selectedShape->SetLineStyle(m_currentLineStyle);
+                }
+            }
+        }
+        break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
-    }
-
-    // 如果从求交模式切换到其他模式，清除求交状态
-    if (previousMode == DrawingMode::INTERSECT && m_currentMode != DrawingMode::INTERSECT) {
-        m_graphicsEngine->clearIntersection();
     }
 
     // 更新图形引擎的绘图模式

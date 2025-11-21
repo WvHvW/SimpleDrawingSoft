@@ -38,3 +38,21 @@ enum class TransformMode {
     ROTATE,
     SCALE
 };
+
+// 线宽枚举
+enum class LineWidth {
+    WIDTH_1PX = 1,
+    WIDTH_2PX = 2,
+    WIDTH_4PX = 4,
+    WIDTH_8PX = 8,
+    WIDTH_16PX = 16
+};
+
+// 线型枚举 (为后续功能预留)
+enum class LineStyle {
+    SOLID = 0,          // 实线
+    DASH = 1,           // 虚线
+    DOT = 2,            // 点线
+    DASH_DOT = 3,       // 点划线
+    DASH_DOT_DOT = 4    // 双点划线
+};

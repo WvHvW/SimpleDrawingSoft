@@ -10,7 +10,7 @@
 class Shape {
 public:
     Shape(ShapeType type) :
-        m_type(type), m_isSelected(false) {
+        m_type(type), m_isSelected(false), m_lineWidth(LineWidth::WIDTH_1PX), m_lineStyle(LineStyle::SOLID) {
     }
     virtual ~Shape() = default;
 
@@ -65,9 +65,20 @@ public:
     virtual std::string Serialize() = 0;
     static std::shared_ptr<Shape> Deserialize(const std::string &data);
 
+    // 线宽方法
+    void SetLineWidth(LineWidth width) { m_lineWidth = width; }
+    LineWidth GetLineWidth() const { return m_lineWidth; }
+    int GetLineWidthValue() const { return static_cast<int>(m_lineWidth); }
+    
+    // 线型方法 (为后续功能预留)
+    void SetLineStyle(LineStyle style) { m_lineStyle = style; }
+    LineStyle GetLineStyle() const { return m_lineStyle; }
+
 protected:
     ShapeType m_type;
     bool m_isSelected;
+    LineWidth m_lineWidth;
+    LineStyle m_lineStyle;  // 为后续功能预留
 };
 
 // 直线类

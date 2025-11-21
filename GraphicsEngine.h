@@ -113,6 +113,9 @@ public:
         m_shapes.clear();
     }
 
+    // 获取指定线型的笔划样式
+    ID2D1StrokeStyle* GetStrokeStyle(LineStyle lineStyle);
+
 private:
     HWND m_hwnd;
     ID2D1Factory *m_pD2DFactory;
@@ -121,6 +124,13 @@ private:
     ID2D1SolidColorBrush *m_pSelectedBrush;
     IDWriteFactory *m_pDWriteFactory;
     ID2D1StrokeStyle *m_pStrokeStyle;
+
+    // 线型样式集合
+    ID2D1StrokeStyle *m_pSolidStrokeStyle;
+    ID2D1StrokeStyle *m_pDashStrokeStyle;
+    ID2D1StrokeStyle *m_pDotStrokeStyle;
+    ID2D1StrokeStyle *m_pDashDotStrokeStyle;
+    ID2D1StrokeStyle *m_pDashDotDotStrokeStyle;
 
     std::vector<std::shared_ptr<Shape>> m_shapes;
     std::shared_ptr<Shape> m_selectedShape;
