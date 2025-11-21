@@ -10,6 +10,7 @@
 #include "GraphicsEngine.h"
 #include "Shape.h"
 #include "Resource.h"
+#include "FillAlgorithms.h"
 
 class MainWindow {
 public:
@@ -33,6 +34,8 @@ private:
     std::shared_ptr<Curve> m_currentCurve;
     bool m_isDrawingCurve = false;
     std::shared_ptr<Line> m_tempPolyLine;
+    std::shared_ptr<MultiBezier> m_currentMultiBezier;
+    bool m_isDrawingMultiBezier = false;
     IDWriteFactory *m_pDW = nullptr;
     IDWriteTextFormat *m_pTF = nullptr;
     IDWriteTextLayout *m_pModeLayout = nullptr; // 缓存模式文本布局
@@ -393,6 +396,69 @@ void MainWindow::OnLButtonDown(int x, int y) {
         }
         break;
 
+    case DrawingMode::MULTI_BEZIER:
+        if (!m_isDrawingMultiBezier) {
+            // 开始绘制新的多点Bezier曲线
+            m_currentMultiBezier = std::make_shared<MultiBezier>();
+            m_currentMultiBezier->AddControlPoint(currentPoint);
+            m_isDrawingMultiBezier = true;
+            OutputDebugStringA("开始绘制多点Bezier曲线，添加第一个控制点\n");
+        } else {
+            // 添加控制点
+            m_currentMultiBezier->AddControlPoint(currentPoint);
+            int pointCount = m_currentMultiBezier->GetControlPoints().size();
+            
+            char debugMsg[100];
+            sprintf_s(debugMsg, "添加控制点 #%d\n", pointCount);
+            OutputDebugStringA(debugMsg);
+        }
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        break;
+    case DrawingMode::SCANLINE_FILL:
+    case DrawingMode::SEED_FILL:
+        // 填充模式：查找点击位置的封闭图形并应用填充算法
+        {
+            bool foundShape = false;
+            for (const auto& shape : m_graphicsEngine->GetShapes()) {
+                ShapeType type = shape->GetType();
+                // 只对封闭图形进行填充（包括多义线组成的封闭多边形）
+                if (type == ShapeType::CIRCLE || type == ShapeType::RECTANGLE ||
+                    type == ShapeType::TRIANGLE || type == ShapeType::DIAMOND ||
+                    type == ShapeType::PARALLELOGRAM || type == ShapeType::POLYLINE) {
+                    
+                    // 简单检查点是否在边界框内
+                    D2D1_RECT_F bounds = shape->GetBounds();
+                    if (currentPoint.x >= bounds.left && currentPoint.x <= bounds.right &&
+                        currentPoint.y >= bounds.top && currentPoint.y <= bounds.bottom) {
+                        
+                        // 应用填充算法
+                        std::vector<D2D1_POINT_2F> fillPixels;
+                        if (m_currentMode == DrawingMode::SCANLINE_FILL) {
+                            fillPixels = FillAlgorithms::ScanlineFill(shape.get(), currentPoint);
+                            OutputDebugStringA("应用栅栏填充算法\n");
+                        } else {
+                            fillPixels = FillAlgorithms::SeedFill(shape.get(), currentPoint);
+                            OutputDebugStringA("应用种子填充算法\n");
+                        }
+                        
+                        if (!fillPixels.empty()) {
+                            shape->SetFillPixels(fillPixels);
+                            char debugMsg[100];
+                            sprintf_s(debugMsg, "填充了 %zu 个像素\n", fillPixels.size());
+                            OutputDebugStringA(debugMsg);
+                            foundShape = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (!foundShape) {
+                OutputDebugStringA("未找到可填充的封闭图形\n");
+            }
+        }
+        break;
+
     case DrawingMode::PERPENDICULAR:
         // 选择直线
         if (auto selectedShape = m_graphicsEngine->SelectShape(currentPoint)) {
@@ -611,6 +677,12 @@ void MainWindow::OnMouseMove(int x, int y) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 
+    // 多点Bezier曲线模式：实时预览鼠标移动
+    if (m_currentMode == DrawingMode::MULTI_BEZIER && m_isDrawingMultiBezier && m_currentMultiBezier) {
+        // 无需特殊处理，OnPaint会自动绘制当前曲线
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+
     // 切线模式预览
     if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && m_selectedCircleForTangent) {
         m_tempTangents = m_graphicsEngine->CreateTangents(currentPoint, m_selectedCircleForTangent);
@@ -691,6 +763,20 @@ void MainWindow::ResetCenterState() {
 }
 
 void MainWindow::OnRButtonDown(int x, int y) {
+    // 右键完成多点Bezier曲线绘制
+    if (m_isDrawingMultiBezier && m_currentMultiBezier) {
+        if (m_currentMultiBezier->GetControlPoints().size() >= 4) {
+            m_graphicsEngine->AddShape(m_currentMultiBezier);
+            OutputDebugStringA("多点Bezier曲线绘制完成\n");
+        } else {
+            OutputDebugStringA("控制点不足4个，无法形成曲线\n");
+        }
+        m_currentMultiBezier.reset();
+        m_isDrawingMultiBezier = false;
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+    
     // 右键结束曲线绘制
     if (m_currentMode == DrawingMode::CURVE && m_isDrawingCurve && m_currentCurve) {
         ResetDrawingState();
@@ -1062,6 +1148,18 @@ void MainWindow::OnPaint() {
             }
         }
 
+        // 绘制正在编辑的多点Bezier曲线
+        if (m_isDrawingMultiBezier && m_currentMultiBezier) {
+            ID2D1SolidColorBrush *tempBrush = nullptr;
+            HRESULT hr = m_graphicsEngine->GetRenderTarget()->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Blue), &tempBrush);
+
+            if (SUCCEEDED(hr) && tempBrush) {
+                m_currentMultiBezier->Draw(m_graphicsEngine->GetRenderTarget(), tempBrush, tempBrush, nullptr);
+                tempBrush->Release();
+            }
+        }
+
         // 绘制切线预览和切点坐标
         if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && m_selectedCircleForTangent && !m_tempTangents.empty()) {
             ID2D1RenderTarget *pRenderTarget = m_graphicsEngine->GetRenderTarget();
@@ -1262,6 +1360,9 @@ void MainWindow::OnPaint() {
         case DrawingMode::TANGENT: name = L"TANGENT"; break;
         case DrawingMode::CENTER: name = L"CENTER"; break;
         case DrawingMode::INTERSECT: name = L"INTERSECT"; break;
+        case DrawingMode::MULTI_BEZIER: name = L"MULTI_BEZIER"; break;
+        case DrawingMode::SCANLINE_FILL: name = L"SCANLINE_FILL"; break;
+        case DrawingMode::SEED_FILL: name = L"SEED_FILL"; break;
         }
         WCHAR txt[64];
         swprintf_s(txt, L"Mode: %s", name);
@@ -1465,17 +1566,17 @@ void MainWindow::OnCommand(WPARAM wParam) {
             }
         }
         break;
-    case 32810: // 双点划线型
-        m_currentLineStyle = LineStyle::DASH_DOT_DOT;
-        if (m_graphicsEngine->IsShapeSelected()) {
-            auto selectedShape = m_graphicsEngine->GetSelectedShape();
-            if (selectedShape) {
-                ShapeType type = selectedShape->GetType();
-                if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
-                    selectedShape->SetLineStyle(m_currentLineStyle);
-                }
-            }
-        }
+    case 32810: // 多点Bezier曲线
+        m_currentMode = DrawingMode::MULTI_BEZIER;
+        OutputDebugStringA("多点Bezier曲线模式已激活\n");
+        break;
+    case 32811: // 栅栏填充法
+        m_currentMode = DrawingMode::SCANLINE_FILL;
+        OutputDebugStringA("栅栏填充模式已激活\n");
+        break;
+    case 32812: // 种子填充法
+        m_currentMode = DrawingMode::SEED_FILL;
+        OutputDebugStringA("种子填充模式已激活\n");
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }

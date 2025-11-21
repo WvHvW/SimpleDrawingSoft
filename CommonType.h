@@ -9,7 +9,8 @@ enum class ShapeType {
     DIAMOND,
     PARALLELOGRAM,
     CURVE,
-    POLYLINE
+    POLYLINE,
+    MULTI_BEZIER      // 多点Bezier曲线
 };
 
 enum class DrawingMode {
@@ -29,7 +30,10 @@ enum class DrawingMode {
     MIDPOINT_LINE,
     BRESENHAM_LINE,
     MIDPOINT_CIRCLE,
-    BRESENHAM_CIRCLE
+    BRESENHAM_CIRCLE,
+    MULTI_BEZIER,         // 多点Bezier曲线
+    SCANLINE_FILL,        // 栅栏填充
+    SEED_FILL             // 种子填充
 };
 
 enum class TransformMode {

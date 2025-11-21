@@ -73,12 +73,34 @@ public:
     // 线型方法 (为后续功能预留)
     void SetLineStyle(LineStyle style) { m_lineStyle = style; }
     LineStyle GetLineStyle() const { return m_lineStyle; }
+    
+    // 填充方法
+    void SetFillPixels(const std::vector<D2D1_POINT_2F>& pixels) { m_fillPixels = pixels; }
+    const std::vector<D2D1_POINT_2F>& GetFillPixels() const { return m_fillPixels; }
+    void ClearFillPixels() { m_fillPixels.clear(); }
+    bool IsFilled() const { return !m_fillPixels.empty(); }
 
 protected:
     ShapeType m_type;
     bool m_isSelected;
     LineWidth m_lineWidth;
     LineStyle m_lineStyle;  // 为后续功能预留
+    std::vector<D2D1_POINT_2F> m_fillPixels;  // 填充像素点
+    
+    // 通用的填充绘制方法（供子类在Draw中调用）
+    void DrawFillPixels(ID2D1RenderTarget* pRenderTarget) const {
+        if (!IsFilled() || m_fillPixels.empty() || !pRenderTarget) return;
+        
+        ID2D1SolidColorBrush* fillBrush = nullptr;
+        pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::LightBlue, 0.6f), &fillBrush);
+        if (fillBrush) {
+            for (const auto& pixel : m_fillPixels) {
+                D2D1_RECT_F pixelRect = D2D1::RectF(pixel.x, pixel.y, pixel.x + 1.0f, pixel.y + 1.0f);
+                pRenderTarget->FillRectangle(pixelRect, fillBrush);
+            }
+            fillBrush->Release();
+        }
+    }
 };
 
 // 直线类
@@ -552,6 +574,11 @@ public:
 
         return segments;
     }
+    
+    // 获取三角形顶点
+    D2D1_POINT_2F GetVertex1() const { return m_points[0]; }
+    D2D1_POINT_2F GetVertex2() const { return m_points[1]; }
+    D2D1_POINT_2F GetVertex3() const { return m_points[2]; }
 
 private:
     D2D1_POINT_2F m_points[3];
@@ -787,4 +814,42 @@ public:
 
 private:
     std::vector<D2D1_POINT_2F> m_points;
+};
+
+// 多点Bezier曲线类（多段三次Bezier曲线组合）
+class MultiBezier : public Shape {
+public:
+    MultiBezier();
+    
+    void Draw(ID2D1RenderTarget *pRenderTarget,
+              ID2D1SolidColorBrush *pBrush,
+              ID2D1SolidColorBrush *pSelectedBrush,
+              ID2D1StrokeStyle *pDashStrokeStyle) override;
+    
+    bool HitTest(D2D1_POINT_2F point) override;
+    void Move(float dx, float dy) override;
+    void Rotate(float angle) override;
+    void Scale(float scale) override;
+    
+    std::string Serialize() override;
+    
+    // 添加控制点
+    void AddControlPoint(D2D1_POINT_2F point);
+    const std::vector<D2D1_POINT_2F>& GetControlPoints() const { return m_controlPoints; }
+    
+    // 获取曲线段数量（每4个控制点形成一段三次Bezier曲线）
+    int GetSegmentCount() const { return static_cast<int>((m_controlPoints.size() - 1) / 3); }
+    
+    D2D1_POINT_2F GetCenter() const override;
+    D2D1_RECT_F GetBounds() const override;
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override;
+    
+private:
+    std::vector<D2D1_POINT_2F> m_controlPoints;  // 控制点序列
+    static const int CURVE_FLATTEN_SEGS = 32;     // 每段曲线的细分数
+    
+    // 计算单段三次Bezier曲线在参数t处的点
+    static D2D1_POINT_2F EvaluateCubicBezier(
+        const D2D1_POINT_2F& p0, const D2D1_POINT_2F& p1,
+        const D2D1_POINT_2F& p2, const D2D1_POINT_2F& p3, float t);
 };
