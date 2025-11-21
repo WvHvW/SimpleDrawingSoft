@@ -142,8 +142,6 @@ std::vector<D2D1_POINT_2F> ScanlineFill(Shape* shape, D2D1_POINT_2F seedPoint) {
     }
     
     D2D1_RECT_F bounds = shape->GetBounds();
-    int minX = static_cast<int>(bounds.left);
-    int maxX = static_cast<int>(bounds.right);
     int minY = static_cast<int>(bounds.top);
     int maxY = static_cast<int>(bounds.bottom);
     
@@ -160,42 +158,41 @@ std::vector<D2D1_POINT_2F> ScanlineFill(Shape* shape, D2D1_POINT_2F seedPoint) {
     
     // 3. 对每条边，标记栅栏与该边之间的区域（取补操作）
     for (const auto& segment : segments) {
-        D2D1_POINT_2F p1 = segment.first;
-        D2D1_POINT_2F p2 = segment.second;
+        int xa = static_cast<int>(segment.first.x);
+        int ya = static_cast<int>(segment.first.y);
+        int xb = static_cast<int>(segment.second.x);
+        int yb = static_cast<int>(segment.second.y);
         
-        // 确定边的Y范围
-        int y1 = static_cast<int>((std::min)(p1.y, p2.y));
-        int y2 = static_cast<int>((std::max)(p1.y, p2.y));
-        
-        // 检查是否为水平边
-        if (std::abs(p2.y - p1.y) < 0.01f) {
-            // 水平边：标记该水平线上栅栏与边的所有点之间的区域
-            int y = static_cast<int>(p1.y);
-            int edgeXMin = static_cast<int>((std::min)(p1.x, p2.x));
-            int edgeXMax = static_cast<int>((std::max)(p1.x, p2.x));
-            
-            // 对边上的每个X坐标，标记栅栏到该点的区域（取补）
-            for (int edgeX = edgeXMin; edgeX <= edgeXMax; ++edgeX) {
-                int x1 = (std::min)(fenceX, edgeX);
-                int x2 = (std::max)(fenceX, edgeX);
-                for (int x = x1; x <= x2; ++x) {
-                    marks[{x, y}] = !marks[{x, y}];
+        // 处理水平边：使用example.txt的思路
+        if (ya == yb) {
+            int y = ya;
+            if (y >= minY && y <= maxY) {
+                int xL = (std::min)(xa, xb);
+                int xR = (std::max)(xa, xb);
+                // 对水平边上的所有点，标记栅栏与该点之间的区域（取补）
+                for (int edgeX = xL; edgeX <= xR; ++edgeX) {
+                    int x1 = (std::min)(fenceX, edgeX);
+                    int x2 = (std::max)(fenceX, edgeX);
+                    for (int x = x1; x <= x2; ++x) {
+                        marks[{x, y}] = !marks[{x, y}];
+                    }
                 }
             }
-        } else {
-            // 非水平边：对这条边的Y范围内的每条扫描线
-            for (int y = y1; y <= y2; ++y) {
+            continue; // 跳过后续处理
+        }
+        
+        // 处理非水平边：使用example.txt的边界条件
+        // 对这条边的Y范围内的每条扫描线
+        for (int y = minY; y <= maxY; ++y) {
+            // 关键条件：(ya < y && yb >= y) || (yb < y && ya >= y)
+            // 这确保了边的上端点被包括，下端点被排除，避免重复计数
+            if ((ya < y && yb >= y) || (yb < y && ya >= y)) {
                 // 计算扫描线与该边的交点X坐标
-                // 计算交点X = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
-                float t = (y - p1.y) / (p2.y - p1.y);
-                if (t < 0.0f || t > 1.0f) continue; // 超出边的范围
-                float edgeX = p1.x + t * (p2.x - p1.x);
-                
-                int edgeXInt = static_cast<int>(edgeX);
+                int edgeX = static_cast<int>(std::round(xa + double(y - ya) * (xb - xa) / (yb - ya)));
                 
                 // 标记栅栏与该边交点之间的区域（取补）
-                int x1 = (std::min)(fenceX, edgeXInt);
-                int x2 = (std::max)(fenceX, edgeXInt);
+                int x1 = (std::min)(fenceX, edgeX);
+                int x2 = (std::max)(fenceX, edgeX);
                 
                 for (int x = x1; x <= x2; ++x) {
                     // 取补操作：如果已标记则取消，未标记则标记

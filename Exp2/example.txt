@@ -1,0 +1,34 @@
+void Rect::FillFence() {
+    int ymin = min(min(pts[0].y, pts[1].y), min(pts[2].y, pts[3].y));
+    int ymax = max(max(pts[0].y, pts[1].y), max(pts[2].y, pts[3].y));
+
+    for (int y = ymin; y <= ymax; y++) {
+        vector<int> intersections;
+
+        for (int i = 0; i < 4; i++) {
+            int xa = pts[i].x, ya = pts[i].y;
+            int xb = pts[(i + 1) % 4].x, yb = pts[(i + 1) % 4].y;
+
+            if (ya == yb) {
+                if (y == ya) {
+                    int xL = min(xa, xb), xR = max(xa, xb);
+                    Line(xL, y, xR, y).Draw_Wait();
+                }
+                continue;
+            }
+
+            if ((ya < y && yb >= y) || (yb < y && ya >= y)) {
+                int x = (int)round(xa + double(y - ya) * (xb - xa) / (yb - ya));
+                intersections.push_back(x);
+            }
+        }
+
+        sort(intersections.begin(), intersections.end());
+        intersections.erase(unique(intersections.begin(), intersections.end()), intersections.end());
+
+        for (size_t i = 0; i + 1 < intersections.size(); i += 2) {
+            Line fillLine(intersections[i], y, intersections[i + 1], y);
+            fillLine.Draw_Wait();
+        }
+    }
+}
