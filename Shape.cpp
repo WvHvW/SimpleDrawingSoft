@@ -12,6 +12,14 @@ std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
         D2D1_POINT_2F start, end;
         iss >> start.x >> start.y >> end.x >> end.y;
         return std::make_shared<Line>(start, end);
+    } else if (type == "MidpointLine") {
+        D2D1_POINT_2F start, end;
+        iss >> start.x >> start.y >> end.x >> end.y;
+        return std::make_shared<MidpointLine>(start, end);
+    } else if (type == "BresenhamLine") {
+        D2D1_POINT_2F start, end;
+        iss >> start.x >> start.y >> end.x >> end.y;
+        return std::make_shared<BresenhamLine>(start, end);
     } else if (type == "Circle") {
         D2D1_POINT_2F center;
         float radius;
@@ -168,6 +176,245 @@ std::string Line::Serialize() {
     std::ostringstream oss;
     oss << "Line " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
     return oss.str();
+}
+
+// MidpointLine 实现
+MidpointLine::MidpointLine(D2D1_POINT_2F start, D2D1_POINT_2F end) :
+    Shape(ShapeType::LINE), m_start(start), m_end(end) {
+    CalculateMidpointPixels();
+}
+
+void MidpointLine::CalculateMidpointPixels() {
+    m_pixels.clear();
+    
+    int x0 = static_cast<int>(m_start.x);
+    int y0 = static_cast<int>(m_start.y);
+    int x1 = static_cast<int>(m_end.x);
+    int y1 = static_cast<int>(m_end.y);
+    
+    int dx = abs(x1 - x0);
+    int dy = abs(y1 - y0);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    
+    if (dx > dy) {
+        // 斜率 <= 1 的情况
+        int d = 2 * dy - dx;
+        int x = x0, y = y0;
+        
+        m_pixels.push_back(D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)));
+        
+        while (x != x1) {
+            x += sx;
+            if (d > 0) {
+                y += sy;
+                d += 2 * (dy - dx);
+            } else {
+                d += 2 * dy;
+            }
+            m_pixels.push_back(D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)));
+        }
+    } else {
+        // 斜率 > 1 的情况
+        int d = 2 * dx - dy;
+        int x = x0, y = y0;
+        
+        m_pixels.push_back(D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)));
+        
+        while (y != y1) {
+            y += sy;
+            if (d > 0) {
+                x += sx;
+                d += 2 * (dx - dy);
+            } else {
+                d += 2 * dx;
+            }
+            m_pixels.push_back(D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)));
+        }
+    }
+}
+
+void MidpointLine::Draw(ID2D1RenderTarget *pRenderTarget,
+                        ID2D1SolidColorBrush *pBrush,
+                        ID2D1SolidColorBrush *pSelectedBrush,
+                        ID2D1StrokeStyle *pDashStrokeStyle) {
+    if (!pRenderTarget || !pBrush || !pSelectedBrush) return;
+
+    ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
+    
+    // 绘制中点画线法生成的像素点
+    for (const auto& pixel : m_pixels) {
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 1.0f, 1.0f);
+        pRenderTarget->FillEllipse(ellipse, currentBrush);
+    }
+    
+    // 如果选中，也绘制虚线框
+    if (m_isSelected && pDashStrokeStyle) {
+        pRenderTarget->DrawLine(m_start, m_end, currentBrush, 1.0f, pDashStrokeStyle);
+    }
+}
+
+bool MidpointLine::HitTest(D2D1_POINT_2F point) {
+    return PointNearSegment(point, m_start, m_end, 5.0f);
+}
+
+void MidpointLine::Move(float dx, float dy) {
+    m_start.x += dx;
+    m_start.y += dy;
+    m_end.x += dx;
+    m_end.y += dy;
+    CalculateMidpointPixels(); // 重新计算像素点
+}
+
+void MidpointLine::Rotate(float angle) {
+    // 围绕中心点旋转
+    D2D1_POINT_2F center = {(m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2};
+    float s = sinf(angle);
+    float c = cosf(angle);
+
+    // 旋转起点
+    float newStartX = (m_start.x - center.x) * c - (m_start.y - center.y) * s;
+    float newStartY = (m_start.x - center.x) * s + (m_start.y - center.y) * c;
+    m_start.x = newStartX + center.x;
+    m_start.y = newStartY + center.y;
+
+    // 旋转终点
+    float newEndX = (m_end.x - center.x) * c - (m_end.y - center.y) * s;
+    float newEndY = (m_end.x - center.x) * s + (m_end.y - center.y) * c;
+    m_end.x = newEndX + center.x;
+    m_end.y = newEndY + center.y;
+    
+    CalculateMidpointPixels(); // 重新计算像素点
+}
+
+void MidpointLine::Scale(float scale) {
+    D2D1_POINT_2F center = {(m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2};
+    m_start.x = center.x + (m_start.x - center.x) * scale;
+    m_start.y = center.y + (m_start.y - center.y) * scale;
+    m_end.x = center.x + (m_end.x - center.x) * scale;
+    m_end.y = center.y + (m_end.y - center.y) * scale;
+    CalculateMidpointPixels(); // 重新计算像素点
+}
+
+std::string MidpointLine::Serialize() {
+    std::ostringstream oss;
+    oss << "MidpointLine " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
+    return oss.str();
+}
+
+std::vector<D2D1_POINT_2F> MidpointLine::GetMidpointPixels() const {
+    return m_pixels;
+}
+
+// BresenhamLine 实现
+BresenhamLine::BresenhamLine(D2D1_POINT_2F start, D2D1_POINT_2F end) :
+    Shape(ShapeType::LINE), m_start(start), m_end(end) {
+    CalculateBresenhamPixels();
+}
+
+void BresenhamLine::CalculateBresenhamPixels() {
+    m_pixels.clear();
+    
+    int x0 = static_cast<int>(m_start.x);
+    int y0 = static_cast<int>(m_start.y);
+    int x1 = static_cast<int>(m_end.x);
+    int y1 = static_cast<int>(m_end.y);
+    
+    int dx = abs(x1 - x0);
+    int dy = abs(y1 - y0);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+    
+    int x = x0, y = y0;
+    
+    while (true) {
+        m_pixels.push_back(D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)));
+        
+        if (x == x1 && y == y1) break;
+        
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            x += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+void BresenhamLine::Draw(ID2D1RenderTarget *pRenderTarget,
+                         ID2D1SolidColorBrush *pBrush,
+                         ID2D1SolidColorBrush *pSelectedBrush,
+                         ID2D1StrokeStyle *pDashStrokeStyle) {
+    if (!pRenderTarget || !pBrush || !pSelectedBrush) return;
+
+    ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pBrush;
+    
+    // 绘制Bresenham画线法生成的像素点
+    for (const auto& pixel : m_pixels) {
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(pixel, 1.5f, 1.5f);
+        pRenderTarget->FillEllipse(ellipse, currentBrush);
+    }
+    
+    // 如果选中，也绘制虚线框
+    if (m_isSelected && pDashStrokeStyle) {
+        pRenderTarget->DrawLine(m_start, m_end, currentBrush, 1.0f, pDashStrokeStyle);
+    }
+}
+
+bool BresenhamLine::HitTest(D2D1_POINT_2F point) {
+    return PointNearSegment(point, m_start, m_end, 5.0f);
+}
+
+void BresenhamLine::Move(float dx, float dy) {
+    m_start.x += dx;
+    m_start.y += dy;
+    m_end.x += dx;
+    m_end.y += dy;
+    CalculateBresenhamPixels(); // 重新计算像素点
+}
+
+void BresenhamLine::Rotate(float angle) {
+    // 围绕中心点旋转
+    D2D1_POINT_2F center = {(m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2};
+    float s = sinf(angle);
+    float c = cosf(angle);
+
+    // 旋转起点
+    float newStartX = (m_start.x - center.x) * c - (m_start.y - center.y) * s;
+    float newStartY = (m_start.x - center.x) * s + (m_start.y - center.y) * c;
+    m_start.x = newStartX + center.x;
+    m_start.y = newStartY + center.y;
+
+    // 旋转终点
+    float newEndX = (m_end.x - center.x) * c - (m_end.y - center.y) * s;
+    float newEndY = (m_end.x - center.x) * s + (m_end.y - center.y) * c;
+    m_end.x = newEndX + center.x;
+    m_end.y = newEndY + center.y;
+    
+    CalculateBresenhamPixels(); // 重新计算像素点
+}
+
+void BresenhamLine::Scale(float scale) {
+    D2D1_POINT_2F center = {(m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2};
+    m_start.x = center.x + (m_start.x - center.x) * scale;
+    m_start.y = center.y + (m_start.y - center.y) * scale;
+    m_end.x = center.x + (m_end.x - center.x) * scale;
+    m_end.y = center.y + (m_end.y - center.y) * scale;
+    CalculateBresenhamPixels(); // 重新计算像素点
+}
+
+std::string BresenhamLine::Serialize() {
+    std::ostringstream oss;
+    oss << "BresenhamLine " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
+    return oss.str();
+}
+
+std::vector<D2D1_POINT_2F> BresenhamLine::GetBresenhamPixels() const {
+    return m_pixels;
 }
 
 // Circle 实现

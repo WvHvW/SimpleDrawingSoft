@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <cmath>
+#include "CommonType.h"
 #include "GraphicsEngine.h"
 #include "Shape.h"
 #include "Resource.h"
@@ -192,6 +193,30 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_tempShape = std::make_shared<Line>(m_startPoint, currentPoint);
         } else {
             m_graphicsEngine->AddShape(std::make_shared<Line>(m_startPoint, currentPoint));
+            ResetDrawingState();
+        }
+        break;
+
+    case DrawingMode::MIDPOINT_LINE:
+        if (m_clickCount == 0) {
+            m_startPoint = currentPoint;
+            m_clickCount = 1;
+            m_isDrawing = true;
+            m_tempShape = std::make_shared<MidpointLine>(m_startPoint, currentPoint);
+        } else {
+            m_graphicsEngine->AddShape(std::make_shared<MidpointLine>(m_startPoint, currentPoint));
+            ResetDrawingState();
+        }
+        break;
+
+    case DrawingMode::BRESENHAM_LINE:
+        if (m_clickCount == 0) {
+            m_startPoint = currentPoint;
+            m_clickCount = 1;
+            m_isDrawing = true;
+            m_tempShape = std::make_shared<BresenhamLine>(m_startPoint, currentPoint);
+        } else {
+            m_graphicsEngine->AddShape(std::make_shared<BresenhamLine>(m_startPoint, currentPoint));
             ResetDrawingState();
         }
         break;
@@ -443,6 +468,14 @@ void MainWindow::OnMouseMove(int x, int y) {
         switch (m_currentMode) {
         case DrawingMode::LINE:
             m_tempShape = std::make_shared<Line>(m_startPoint, currentPoint);
+            break;
+
+        case DrawingMode::MIDPOINT_LINE:
+            m_tempShape = std::make_shared<MidpointLine>(m_startPoint, currentPoint);
+            break;
+
+        case DrawingMode::BRESENHAM_LINE:
+            m_tempShape = std::make_shared<BresenhamLine>(m_startPoint, currentPoint);
             break;
 
         case DrawingMode::CIRCLE: {
@@ -1119,6 +1152,8 @@ void MainWindow::OnPaint() {
         switch (m_currentMode) {
         case DrawingMode::SELECT: name = L"SELECT"; break;
         case DrawingMode::LINE: name = L"LINE"; break;
+        case DrawingMode::MIDPOINT_LINE: name = L"MIDPOINT_LINE"; break;
+        case DrawingMode::BRESENHAM_LINE: name = L"BRESENHAM_LINE"; break;
         case DrawingMode::CIRCLE: name = L"CIRCLE"; break;
         case DrawingMode::RECTANGLE: name = L"RECTANGLE"; break;
         case DrawingMode::TRIANGLE: name = L"TRIANGLE"; break;
@@ -1209,6 +1244,12 @@ void MainWindow::OnCommand(WPARAM wParam) {
         break;
     case 32791:
         LoadFromFile();
+        break;
+    case 32792:
+        m_currentMode = DrawingMode::MIDPOINT_LINE;
+        break;
+    case 32793:
+        m_currentMode = DrawingMode::BRESENHAM_LINE;
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }

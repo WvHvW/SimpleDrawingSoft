@@ -25,7 +25,9 @@ enum class DrawingMode {
     INTERSECT,
     PERPENDICULAR,
     CENTER,
-    TANGENT
+    TANGENT,
+    MIDPOINT_LINE,
+    BRESENHAM_LINE
 };
 
 enum class TransformMode {

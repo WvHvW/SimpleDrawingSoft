@@ -117,6 +117,110 @@ private:
     D2D1_POINT_2F m_start, m_end;
 };
 
+// 中点画线法直线类
+class MidpointLine : public Shape {
+public:
+    MidpointLine(D2D1_POINT_2F start, D2D1_POINT_2F end);
+
+    void Draw(ID2D1RenderTarget *pRenderTarget,
+              ID2D1SolidColorBrush *pBrush,
+              ID2D1SolidColorBrush *pSelectedBrush,
+              ID2D1StrokeStyle *pDashStrokeStyle) override;
+
+    bool HitTest(D2D1_POINT_2F point) override;
+    void Move(float dx, float dy) override;
+    void Rotate(float angle) override;
+    void Scale(float scale) override;
+
+    std::string Serialize() override;
+
+    D2D1_POINT_2F GetStart() const {
+        return m_start;
+    }
+    D2D1_POINT_2F GetEnd() const {
+        return m_end;
+    }
+
+    D2D1_POINT_2F GetCenter() const override {
+        return D2D1::Point2F((m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2);
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        return D2D1::RectF(
+            min(m_start.x, m_end.x),
+            min(m_start.y, m_end.y),
+            max(m_start.x, m_end.x),
+            max(m_start.y, m_end.y));
+    }
+
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+        segments.push_back({m_start, m_end});
+        return segments;
+    }
+
+    // 获取中点画线法生成的像素点
+    std::vector<D2D1_POINT_2F> GetMidpointPixels() const;
+
+private:
+    D2D1_POINT_2F m_start, m_end;
+    std::vector<D2D1_POINT_2F> m_pixels; // 存储中点画线法生成的像素点
+    void CalculateMidpointPixels(); // 计算中点画线法像素点
+};
+
+// Bresenham画线法直线类
+class BresenhamLine : public Shape {
+public:
+    BresenhamLine(D2D1_POINT_2F start, D2D1_POINT_2F end);
+
+    void Draw(ID2D1RenderTarget *pRenderTarget,
+              ID2D1SolidColorBrush *pBrush,
+              ID2D1SolidColorBrush *pSelectedBrush,
+              ID2D1StrokeStyle *pDashStrokeStyle) override;
+
+    bool HitTest(D2D1_POINT_2F point) override;
+    void Move(float dx, float dy) override;
+    void Rotate(float angle) override;
+    void Scale(float scale) override;
+
+    std::string Serialize() override;
+
+    D2D1_POINT_2F GetStart() const {
+        return m_start;
+    }
+    D2D1_POINT_2F GetEnd() const {
+        return m_end;
+    }
+
+    D2D1_POINT_2F GetCenter() const override {
+        return D2D1::Point2F((m_start.x + m_end.x) / 2, (m_start.y + m_end.y) / 2);
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        return D2D1::RectF(
+            min(m_start.x, m_end.x),
+            min(m_start.y, m_end.y),
+            max(m_start.x, m_end.x),
+            max(m_start.y, m_end.y));
+    }
+
+    // 重写离散线段函数
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+        segments.push_back({m_start, m_end});
+        return segments;
+    }
+
+    // 获取Bresenham画线法生成的像素点
+    std::vector<D2D1_POINT_2F> GetBresenhamPixels() const;
+
+private:
+    D2D1_POINT_2F m_start, m_end;
+    std::vector<D2D1_POINT_2F> m_pixels; // 存储Bresenham画线法生成的像素点
+    void CalculateBresenhamPixels(); // 计算Bresenham画线法像素点
+};
+
 // 圆形类
 class Circle : public Shape {
 public:
