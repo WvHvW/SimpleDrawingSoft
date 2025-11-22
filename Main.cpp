@@ -769,11 +769,11 @@ void MainWindow::OnRButtonDown(int x, int y) {
     if (m_isDrawingMultiBezier && m_currentMultiBezier) {
         m_currentMultiBezier->ClearPreviewPoint();  // 清除预览点
         m_currentMultiBezier->SetEditing(false);     // 清除编辑状态
-        if (m_currentMultiBezier->GetControlPoints().size() >= 4) {
+        if (m_currentMultiBezier->GetControlPoints().size() >= 2) {
             m_graphicsEngine->AddShape(m_currentMultiBezier);
-            OutputDebugStringA("多点Bezier曲线绘制完成\n");
+            OutputDebugStringA("多点Bezier曲线绘制完成（使用De Casteljau算法）\n");
         } else {
-            OutputDebugStringA("控制点不足4个，无法形成曲线\n");
+            OutputDebugStringA("控制点不足2个，无法形成曲线\n");
         }
         m_currentMultiBezier.reset();
         m_isDrawingMultiBezier = false;

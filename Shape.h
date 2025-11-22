@@ -874,8 +874,8 @@ public:
     void SetEditing(bool editing) { m_isEditing = editing; }
     bool IsEditing() const { return m_isEditing; }
     
-    // 获取曲线段数量（每4个控制点形成一段三次Bezier曲线）
-    int GetSegmentCount() const { return static_cast<int>((m_controlPoints.size() - 1) / 3); }
+    // 获取控制点数量
+    int GetControlPointCount() const { return static_cast<int>(m_controlPoints.size()); }
     
     D2D1_POINT_2F GetCenter() const override;
     D2D1_RECT_F GetBounds() const override;
@@ -886,10 +886,9 @@ private:
     D2D1_POINT_2F m_previewPoint;                // 预览点（鼠标位置）
     bool m_hasPreview = false;                   // 是否有预览点
     bool m_isEditing = false;                    // 是否处于编辑状态
-    static const int CURVE_FLATTEN_SEGS = 32;     // 每段曲线的细分数
+    static const int CURVE_SEGMENTS = 100;     // 曲线的细分数
     
-    // 计算单段三次Bezier曲线在参数t处的点
-    static D2D1_POINT_2F EvaluateCubicBezier(
-        const D2D1_POINT_2F& p0, const D2D1_POINT_2F& p1,
-        const D2D1_POINT_2F& p2, const D2D1_POINT_2F& p3, float t);
+    // De Casteljau算法：计算任意阶Bezier曲线在参数t处的点
+    static D2D1_POINT_2F DeCasteljau(
+        const std::vector<D2D1_POINT_2F>& controlPoints, float t);
 };

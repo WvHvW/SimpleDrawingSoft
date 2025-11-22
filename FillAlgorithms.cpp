@@ -152,57 +152,62 @@ std::vector<D2D1_POINT_2F> ScanlineFill(Shape* shape, D2D1_POINT_2F seedPoint) {
     // 选择第一个顶点作为栅栏位置
     int fenceX = static_cast<int>(segments[0].first.x);
     
-    // 2. 使用标记数组，对每个像素进行取补标记
-    // 使用map存储标记状态（true表示被标记，false表示未标记）
-    std::map<std::pair<int, int>, bool> marks;
-    
-    // 3. 对每条边，标记栅栏与该边之间的区域（取补操作）
-    for (const auto& segment : segments) {
-        int xa = static_cast<int>(segment.first.x);
-        int ya = static_cast<int>(segment.first.y);
-        int xb = static_cast<int>(segment.second.x);
-        int yb = static_cast<int>(segment.second.y);
-        
-        // 处理水平边：使用example.txt的思路
-        if (ya == yb) {
-            int y = ya;
-            if (y >= minY && y <= maxY) {
-                int xL = (std::min)(xa, xb);
-                int xR = (std::max)(xa, xb);
-                // 对水平边上的所有点，标记栅栏与该点之间的区域（取补）
-                for (int edgeX = xL; edgeX <= xR; ++edgeX) {
-                    int x1 = (std::min)(fenceX, edgeX);
-                    int x2 = (std::max)(fenceX, edgeX);
-                    for (int x = x1; x <= x2; ++x) {
-                        marks[{x, y}] = !marks[{x, y}];
-                    }
-                }
-            }
-            continue; // 跳过后续处理
-        }
-        
-        // 处理非水平边：使用example.txt的边界条件
-        // 对这条边的Y范围内的每条扫描线
-        for (int y = minY; y <= maxY; ++y) {
-            // 关键条件：(ya < y && yb >= y) || (yb < y && ya >= y)
-            // 这确保了边的上端点被包括，下端点被排除，避免重复计数
-            if ((ya < y && yb >= y) || (yb < y && ya >= y)) {
-                // 计算扫描线与该边的交点X坐标
-                int edgeX = static_cast<int>(std::round(xa + double(y - ya) * (xb - xa) / (yb - ya)));
-                
-                // 标记栅栏与该边交点之间的区域（取补）
-                int x1 = (std::min)(fenceX, edgeX);
-                int x2 = (std::max)(fenceX, edgeX);
-                
-                for (int x = x1; x <= x2; ++x) {
-                    // 取补操作：如果已标记则取消，未标记则标记
-                    marks[{x, y}] = !marks[{x, y}];
-                }
-            }
+    // 2. 将栅栏上的点直接加入填充结果
+    // 因为栅栏点会在异或过程中被处理偶数次，导致没有标记
+    for (int y = minY; y <= maxY; ++y) {
+        D2D1_POINT_2F fencePoint = D2D1::Point2F(static_cast<float>(fenceX), static_cast<float>(y));
+        if (IsPointInsideShape(shape, fencePoint)) {
+            fillPixels.push_back(fencePoint);
         }
     }
     
-    // 4. 收集仍有标记的像素作为填充像素
+    // 3. 使用标记数组，对每个像素进行取补标记
+    // 使用map存储标记状态（true表示被标记，false表示未标记）
+    std::map<std::pair<int, int>, bool> marks;
+    
+    // 4. 对每条与多边形相交的扫描线，将位于栅栏与边之间的像素取补
+    for (int y = minY; y <= maxY; ++y) {
+        // 对当前扫描线，找到所有与之相交的边
+        for (const auto& segment : segments) {
+            int xa = static_cast<int>(segment.first.x);
+            int ya = static_cast<int>(segment.first.y);
+            int xb = static_cast<int>(segment.second.x);
+            int yb = static_cast<int>(segment.second.y);
+            
+            // 跳过水平边（与扫描线平行，不相交）
+            if (ya == yb) {
+                continue;
+            }
+            
+            // 判断该边是否与当前扫描线相交（包含边的所有端点）
+            int yMin = (std::min)(ya, yb);
+            int yMax = (std::max)(ya, yb);
+            if (y <= yMin || y > yMax) {
+                continue; // 不相交
+            }
+            
+            // 计算该边在当前扫描线上的交点X坐标
+            int edgeX;
+            if (xa == xb) {
+                // 竖直边
+                edgeX = xa;
+            } else {
+                // 斜边：使用线性插值计算交点
+                edgeX = static_cast<int>(std::round(xa + double(y - ya) * (xb - xa) / (yb - ya)));
+            }
+            
+            // 将栅栏与该边交点之间的扫描线段取补（异或操作），包含栅栏点和边界点
+            int x1 = (std::min)(fenceX, edgeX);
+            int x2 = (std::max)(fenceX, edgeX);
+            
+            for (int x = x1; x <= x2; ++x) {
+                marks[{x, y}] = !marks[{x, y}];
+            }
+            
+        }
+    }
+    
+    // 5. 收集仍有标记的像素作为填充像素
     for (const auto& mark : marks) {
         if (mark.second) { // 仍有标记
             int x = mark.first.first;

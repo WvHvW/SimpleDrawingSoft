@@ -1695,17 +1695,29 @@ std::string Poly::Serialize() {
 MultiBezier::MultiBezier() : Shape(ShapeType::MULTI_BEZIER) {
 }
 
-D2D1_POINT_2F MultiBezier::EvaluateCubicBezier(
-    const D2D1_POINT_2F& p0, const D2D1_POINT_2F& p1,
-    const D2D1_POINT_2F& p2, const D2D1_POINT_2F& p3, float t) {
-    float mt = 1.0f - t;
-    float mt2 = mt * mt;
-    float t2 = t * t;
+// De Casteljau算法：递归计算任意阶Bezier曲线在参数t处的点
+D2D1_POINT_2F MultiBezier::DeCasteljau(
+    const std::vector<D2D1_POINT_2F>& controlPoints, float t) {
+    if (controlPoints.empty()) {
+        return D2D1::Point2F(0, 0);
+    }
+    if (controlPoints.size() == 1) {
+        return controlPoints[0];
+    }
     
-    D2D1_POINT_2F result;
-    result.x = mt2 * mt * p0.x + 3.0f * mt2 * t * p1.x + 3.0f * mt * t2 * p2.x + t2 * t * p3.x;
-    result.y = mt2 * mt * p0.y + 3.0f * mt2 * t * p1.y + 3.0f * mt * t2 * p2.y + t2 * t * p3.y;
-    return result;
+    // 创建临时数组存储每一层的插值结果
+    std::vector<D2D1_POINT_2F> tempPoints = controlPoints;
+    int n = static_cast<int>(tempPoints.size());
+    
+    // 逐层计算线性插值
+    for (int level = n - 1; level > 0; --level) {
+        for (int i = 0; i < level; ++i) {
+            tempPoints[i].x = (1.0f - t) * tempPoints[i].x + t * tempPoints[i + 1].x;
+            tempPoints[i].y = (1.0f - t) * tempPoints[i].y + t * tempPoints[i + 1].y;
+        }
+    }
+    
+    return tempPoints[0];
 }
 
 void MultiBezier::AddControlPoint(D2D1_POINT_2F point) {
@@ -1747,44 +1759,30 @@ void MultiBezier::Draw(ID2D1RenderTarget *pRenderTarget,
         }
     }
     
-    // 如果控制点不足4个，只绘制控制点和预览，不绘制曲线
-    if (m_controlPoints.size() < 4) return;
+    // 如果控制点不足2个，只绘制控制点和预览，不绘制曲线
+    if (m_controlPoints.size() < 2) return;
     
     ID2D1SolidColorBrush *currentBrush = m_isSelected ? pSelectedBrush : pNormalBrush;
     
-    ID2D1Factory *pFactory = nullptr;
-    pRenderTarget->GetFactory(&pFactory);
-    
-    ID2D1PathGeometry *pPathGeometry = nullptr;
-    if (SUCCEEDED(pFactory->CreatePathGeometry(&pPathGeometry))) {
-        ID2D1GeometrySink *pSink = nullptr;
-        if (SUCCEEDED(pPathGeometry->Open(&pSink))) {
-            pSink->BeginFigure(m_controlPoints[0], D2D1_FIGURE_BEGIN_HOLLOW);
+    // 使用De Casteljau算法绘制整条Bezier曲线
+    // 将曲线离散化为线段
+    if (m_controlPoints.size() >= 2) {
+        D2D1_POINT_2F prevPoint = DeCasteljau(m_controlPoints, 0.0f);
+        
+        for (int i = 1; i <= CURVE_SEGMENTS; ++i) {
+            float t = static_cast<float>(i) / CURVE_SEGMENTS;
+            D2D1_POINT_2F currentPoint = DeCasteljau(m_controlPoints, t);
             
-            int segmentCount = GetSegmentCount();
-            for (int seg = 0; seg < segmentCount; ++seg) {
-                int baseIdx = seg * 3;
-                const D2D1_POINT_2F& p1 = m_controlPoints[baseIdx + 1];
-                const D2D1_POINT_2F& p2 = m_controlPoints[baseIdx + 2];
-                const D2D1_POINT_2F& p3 = m_controlPoints[baseIdx + 3];
-                
-                pSink->AddBezier(D2D1::BezierSegment(p1, p2, p3));
+            float strokeWidth = m_isSelected ? 2.0f : 2.0f;
+            if (m_isSelected && pDashStrokeStyle) {
+                pRenderTarget->DrawLine(prevPoint, currentPoint, currentBrush, strokeWidth, pDashStrokeStyle);
+            } else {
+                pRenderTarget->DrawLine(prevPoint, currentPoint, currentBrush, strokeWidth);
             }
             
-            pSink->EndFigure(D2D1_FIGURE_END_OPEN);
-            pSink->Close();
-            pSink->Release();
+            prevPoint = currentPoint;
         }
-        
-        if (m_isSelected && pDashStrokeStyle)
-            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f, pDashStrokeStyle);
-        else
-            pRenderTarget->DrawGeometry(pPathGeometry, currentBrush, 2.0f);
-        
-        pPathGeometry->Release();
     }
-    
-    if (pFactory) pFactory->Release();
     
     if (m_isSelected) {
         ID2D1SolidColorBrush *controlBrush = nullptr;
@@ -1800,40 +1798,32 @@ void MultiBezier::Draw(ID2D1RenderTarget *pRenderTarget,
 }
 
 bool MultiBezier::HitTest(D2D1_POINT_2F point) {
-    if (m_controlPoints.size() < 4) return false;
+    if (m_controlPoints.size() < 2) return false;
     
-    int segmentCount = GetSegmentCount();
-    for (int seg = 0; seg < segmentCount; ++seg) {
-        int baseIdx = seg * 3;
-        const D2D1_POINT_2F& p0 = m_controlPoints[baseIdx];
-        const D2D1_POINT_2F& p1 = m_controlPoints[baseIdx + 1];
-        const D2D1_POINT_2F& p2 = m_controlPoints[baseIdx + 2];
-        const D2D1_POINT_2F& p3 = m_controlPoints[baseIdx + 3];
+    // 使用De Casteljau算法离散化曲线并检测点击
+    for (int i = 0; i < CURVE_SEGMENTS; ++i) {
+        float t1 = static_cast<float>(i) / CURVE_SEGMENTS;
+        float t2 = static_cast<float>(i + 1) / CURVE_SEGMENTS;
         
-        for (int i = 0; i < CURVE_FLATTEN_SEGS; ++i) {
-            float t1 = static_cast<float>(i) / CURVE_FLATTEN_SEGS;
-            float t2 = static_cast<float>(i + 1) / CURVE_FLATTEN_SEGS;
-            
-            D2D1_POINT_2F pt1 = EvaluateCubicBezier(p0, p1, p2, p3, t1);
-            D2D1_POINT_2F pt2 = EvaluateCubicBezier(p0, p1, p2, p3, t2);
-            
-            float dx = pt2.x - pt1.x;
-            float dy = pt2.y - pt1.y;
-            float lenSq = dx * dx + dy * dy;
-            
-            if (lenSq == 0) continue;
-            
-            float t = ((point.x - pt1.x) * dx + (point.y - pt1.y) * dy) / lenSq;
-            t = max(0.0f, min(1.0f, t));
-            
-            float nearX = pt1.x + t * dx;
-            float nearY = pt1.y + t * dy;
-            
-            float distSq = (point.x - nearX) * (point.x - nearX) + 
-                          (point.y - nearY) * (point.y - nearY);
-            
-            if (distSq < 25.0f) return true;
-        }
+        D2D1_POINT_2F pt1 = DeCasteljau(m_controlPoints, t1);
+        D2D1_POINT_2F pt2 = DeCasteljau(m_controlPoints, t2);
+        
+        float dx = pt2.x - pt1.x;
+        float dy = pt2.y - pt1.y;
+        float lenSq = dx * dx + dy * dy;
+        
+        if (lenSq == 0) continue;
+        
+        float t = ((point.x - pt1.x) * dx + (point.y - pt1.y) * dy) / lenSq;
+        t = max(0.0f, min(1.0f, t));
+        
+        float nearX = pt1.x + t * dx;
+        float nearY = pt1.y + t * dy;
+        
+        float distSq = (point.x - nearX) * (point.x - nearX) + 
+                      (point.y - nearY) * (point.y - nearY);
+        
+        if (distSq < 25.0f) return true;
     }
     return false;
 }
@@ -1912,25 +1902,17 @@ D2D1_RECT_F MultiBezier::GetBounds() const {
 std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> MultiBezier::GetIntersectionSegments() const {
     std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
     
-    if (m_controlPoints.size() < 4) return segments;
+    if (m_controlPoints.size() < 2) return segments;
     
-    int segmentCount = GetSegmentCount();
-    for (int seg = 0; seg < segmentCount; ++seg) {
-        int baseIdx = seg * 3;
-        const D2D1_POINT_2F& p0 = m_controlPoints[baseIdx];
-        const D2D1_POINT_2F& p1 = m_controlPoints[baseIdx + 1];
-        const D2D1_POINT_2F& p2 = m_controlPoints[baseIdx + 2];
-        const D2D1_POINT_2F& p3 = m_controlPoints[baseIdx + 3];
+    // 使用De Casteljau算法离散化整条曲线
+    for (int i = 0; i < CURVE_SEGMENTS; ++i) {
+        float t1 = static_cast<float>(i) / CURVE_SEGMENTS;
+        float t2 = static_cast<float>(i + 1) / CURVE_SEGMENTS;
         
-        for (int i = 0; i < CURVE_FLATTEN_SEGS; ++i) {
-            float t1 = static_cast<float>(i) / CURVE_FLATTEN_SEGS;
-            float t2 = static_cast<float>(i + 1) / CURVE_FLATTEN_SEGS;
-            
-            D2D1_POINT_2F pt1 = EvaluateCubicBezier(p0, p1, p2, p3, t1);
-            D2D1_POINT_2F pt2 = EvaluateCubicBezier(p0, p1, p2, p3, t2);
-            
-            segments.push_back({pt1, pt2});
-        }
+        D2D1_POINT_2F pt1 = DeCasteljau(m_controlPoints, t1);
+        D2D1_POINT_2F pt2 = DeCasteljau(m_controlPoints, t2);
+        
+        segments.push_back({pt1, pt2});
     }
     
     return segments;
