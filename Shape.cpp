@@ -127,6 +127,30 @@ std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
             points.push_back(point);
         }
         return std::make_shared<Poly>(points);
+    } else if (type == "MultiBezier") {
+        std::vector<D2D1_POINT_2F> points;
+        size_t pointCount;
+        iss >> pointCount;
+        for (size_t i = 0; i < pointCount; ++i) {
+            D2D1_POINT_2F point;
+            iss >> point.x >> point.y;
+            points.push_back(point);
+        }
+        auto multiBezier = std::make_shared<MultiBezier>();
+        for (const auto& point : points) {
+            multiBezier->AddControlPoint(point);
+        }
+        return multiBezier;
+    } else if (type == "Polygon") {
+        std::vector<D2D1_POINT_2F> points;
+        size_t pointCount;
+        iss >> pointCount;
+        for (size_t i = 0; i < pointCount; ++i) {
+            D2D1_POINT_2F point;
+            iss >> point.x >> point.y;
+            points.push_back(point);
+        }
+        return std::make_shared<Polygon>(points);
     }
 
     return nullptr; // 未知类型
@@ -1925,4 +1949,235 @@ std::string MultiBezier::Serialize() {
         oss << " " << point.x << " " << point.y;
     }
     return oss.str();
+}
+
+// ==================== Polygon 实现 ====================
+
+Polygon::Polygon(const std::vector<D2D1_POINT_2F> &points) : Shape(ShapeType::POLYGON) {
+    m_points = points;
+}
+
+void Polygon::Draw(ID2D1RenderTarget *pRenderTarget,
+                   ID2D1SolidColorBrush *pBrush,
+                   ID2D1SolidColorBrush *pSelectedBrush,
+                   ID2D1StrokeStyle *pDashStrokeStyle) {
+    if (m_points.size() < 2 || !pRenderTarget) return;
+
+    // 先绘制填充
+    DrawFillPixels(pRenderTarget);
+
+    ID2D1SolidColorBrush *drawBrush = m_isSelected ? pSelectedBrush : pBrush;
+    float strokeWidth = static_cast<float>(GetLineWidthValue());
+
+    // 绘制多边形的边
+    for (size_t i = 1; i < m_points.size(); ++i) {
+        pRenderTarget->DrawLine(m_points[i - 1], m_points[i], drawBrush, strokeWidth);
+    }
+
+    // 如果有至少3个点，闭合多边形
+    if (m_points.size() >= 3) {
+        pRenderTarget->DrawLine(m_points.back(), m_points[0], drawBrush, strokeWidth);
+    }
+}
+
+bool Polygon::HitTest(D2D1_POINT_2F point) {
+    if (m_points.size() < 2) return false;
+
+    const float threshold = 5.0f;
+
+    // 检查是否点击在边上
+    for (size_t i = 1; i < m_points.size(); ++i) {
+        D2D1_POINT_2F p1 = m_points[i - 1];
+        D2D1_POINT_2F p2 = m_points[i];
+
+        float dx = p2.x - p1.x;
+        float dy = p2.y - p1.y;
+        float length = sqrtf(dx * dx + dy * dy);
+
+        if (length < 0.001f) continue;
+
+        float t = ((point.x - p1.x) * dx + (point.y - p1.y) * dy) / (length * length);
+        t = max(0.0f, min(1.0f, t));
+
+        float closestX = p1.x + t * dx;
+        float closestY = p1.y + t * dy;
+
+        float distance = sqrtf(powf(point.x - closestX, 2) + powf(point.y - closestY, 2));
+        if (distance <= threshold) {
+            return true;
+        }
+    }
+
+    // 检查闭合边
+    if (m_points.size() >= 3) {
+        D2D1_POINT_2F p1 = m_points.back();
+        D2D1_POINT_2F p2 = m_points[0];
+
+        float dx = p2.x - p1.x;
+        float dy = p2.y - p1.y;
+        float length = sqrtf(dx * dx + dy * dy);
+
+        if (length >= 0.001f) {
+            float t = ((point.x - p1.x) * dx + (point.y - p1.y) * dy) / (length * length);
+            t = max(0.0f, min(1.0f, t));
+
+            float closestX = p1.x + t * dx;
+            float closestY = p1.y + t * dy;
+
+            float distance = sqrtf(powf(point.x - closestX, 2) + powf(point.y - closestY, 2));
+            if (distance <= threshold) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void Polygon::Move(float dx, float dy) {
+    for (auto &point : m_points) {
+        point.x += dx;
+        point.y += dy;
+    }
+    TransformFillPixelsMove(dx, dy);
+}
+
+void Polygon::Rotate(float angle) {
+    if (m_points.empty()) return;
+
+    D2D1_POINT_2F center = GetCenter();
+    float s = sinf(angle);
+    float c = cosf(angle);
+
+    for (auto &point : m_points) {
+        float x = point.x - center.x;
+        float y = point.y - center.y;
+
+        float newX = x * c - y * s;
+        float newY = x * s + y * c;
+
+        point.x = newX + center.x;
+        point.y = newY + center.y;
+    }
+    TransformFillPixelsRotate(angle, center);
+}
+
+void Polygon::Scale(float scale) {
+    if (m_points.empty()) return;
+
+    D2D1_POINT_2F center = GetCenter();
+
+    for (auto &point : m_points) {
+        point.x = center.x + (point.x - center.x) * scale;
+        point.y = center.y + (point.y - center.y) * scale;
+    }
+    TransformFillPixelsScale(scale, center);
+}
+
+void Polygon::AddPoint(D2D1_POINT_2F point) {
+    m_points.push_back(point);
+}
+
+std::string Polygon::Serialize() {
+    std::ostringstream oss;
+    oss << "Polygon " << m_points.size();
+    for (const auto &point : m_points) {
+        oss << " " << point.x << " " << point.y;
+    }
+    return oss.str();
+}
+
+// 检查新点是否会导致自相交
+bool Polygon::WouldCauseIntersection(D2D1_POINT_2F newPoint, bool checkClosingEdge) const {
+    if (m_points.size() < 2) return false;
+
+    D2D1_POINT_2F lastPoint = m_points.back();
+    D2D1_POINT_2F firstPoint = m_points[0];
+    
+    char debugMsg[200];
+    sprintf_s(debugMsg, "检查相交: 当前有%zu个点, 新边从(%.1f,%.1f)到(%.1f,%.1f), 检查闭合边=%d\n", 
+              m_points.size(), lastPoint.x, lastPoint.y, newPoint.x, newPoint.y, checkClosingEdge);
+    OutputDebugStringA(debugMsg);
+    
+    // 1. 检查新边 lastPoint -> newPoint 是否与已有的边相交
+    for (size_t i = 0; i < m_points.size() - 1; ++i) {
+        D2D1_POINT_2F edgeStart = m_points[i];
+        D2D1_POINT_2F edgeEnd = m_points[i + 1];
+        
+        // 跳过最后一条边（与新边共享lastPoint端点）
+        if (i == m_points.size() - 2) {
+            sprintf_s(debugMsg, "  跳过最后一条边[%zu]: (%.1f,%.1f)到(%.1f,%.1f)\n", 
+                      i, edgeStart.x, edgeStart.y, edgeEnd.x, edgeEnd.y);
+            OutputDebugStringA(debugMsg);
+            continue;
+        }
+        
+        sprintf_s(debugMsg, "  检查新边与边[%zu]: (%.1f,%.1f)到(%.1f,%.1f)\n", 
+                  i, edgeStart.x, edgeStart.y, edgeEnd.x, edgeEnd.y);
+        OutputDebugStringA(debugMsg);
+        
+        if (SegmentsIntersect(lastPoint, newPoint, edgeStart, edgeEnd)) {
+            OutputDebugStringA("  >>> 新边发现相交！\n");
+            return true;
+        }
+    }
+
+    // 2. 如果需要，检查闭合边 newPoint -> firstPoint 是否与已有边相交
+    if (checkClosingEdge && m_points.size() >= 2) {
+        sprintf_s(debugMsg, "  检查闭合边: (%.1f,%.1f)到(%.1f,%.1f)\n", 
+                  newPoint.x, newPoint.y, firstPoint.x, firstPoint.y);
+        OutputDebugStringA(debugMsg);
+        
+        // 闭合边需要与所有边检查，除了第一条边（共享firstPoint）和最后一条边（共享lastPoint）
+        for (size_t i = 1; i < m_points.size() - 1; ++i) {
+            D2D1_POINT_2F edgeStart = m_points[i];
+            D2D1_POINT_2F edgeEnd = m_points[i + 1];
+            
+            sprintf_s(debugMsg, "    检查闭合边与边[%zu]: (%.1f,%.1f)到(%.1f,%.1f)\n", 
+                      i, edgeStart.x, edgeStart.y, edgeEnd.x, edgeEnd.y);
+            OutputDebugStringA(debugMsg);
+            
+            if (SegmentsIntersect(newPoint, firstPoint, edgeStart, edgeEnd)) {
+                OutputDebugStringA("  >>> 闭合边发现相交！\n");
+                return true;
+            }
+        }
+    }
+
+    OutputDebugStringA("  没有发现相交\n");
+    return false;
+}
+
+// 辅助函数：检查两条线段是否相交
+bool Polygon::SegmentsIntersect(D2D1_POINT_2F p1, D2D1_POINT_2F p2,
+                                 D2D1_POINT_2F p3, D2D1_POINT_2F p4) {
+    // 先检查端点重合的情况（不算相交）
+    const float epsilon = 5.0f;  // 增大epsilon以更好地处理端点重合
+    auto pointsEqual = [epsilon](D2D1_POINT_2F a, D2D1_POINT_2F b) -> bool {
+        return fabsf(a.x - b.x) < epsilon && fabsf(a.y - b.y) < epsilon;
+    };
+
+    // 如果两条线段共享端点，不算相交
+    if (pointsEqual(p1, p3) || pointsEqual(p1, p4) ||
+        pointsEqual(p2, p3) || pointsEqual(p2, p4)) {
+        return false;
+    }
+
+    // 使用叉积判断线段相交
+    auto ccw = [](D2D1_POINT_2F A, D2D1_POINT_2F B, D2D1_POINT_2F C) -> float {
+        return (C.y - A.y) * (B.x - A.x) - (B.y - A.y) * (C.x - A.x);
+    };
+
+    float d1 = ccw(p3, p4, p1);
+    float d2 = ccw(p3, p4, p2);
+    float d3 = ccw(p1, p2, p3);
+    float d4 = ccw(p1, p2, p4);
+
+    // 两条线段相交的条件：p1和p2在p3p4两侧，且p3和p4在p1p2两侧
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+        ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+        return true;
+    }
+
+    return false;
 }

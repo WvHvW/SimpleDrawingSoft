@@ -69,6 +69,14 @@ private:
     // 求交相关状态
     bool m_isIntersectionMode = false;
 
+    // 多边形绘制状态
+    std::vector<D2D1_POINT_2F> m_polygonPoints;
+    bool m_isDrawingPolygon = false;
+    std::shared_ptr<Polygon> m_currentPolygon;
+    bool m_showInvalidPointFlash = false;
+    D2D1_POINT_2F m_invalidPoint;
+    DWORD m_flashStartTime = 0;
+
     // 交点显示
     void DrawIntersectionPoints(ID2D1RenderTarget *pRenderTarget);
     void DrawSelectedIntersectionShapes(ID2D1RenderTarget *pRenderTarget);
@@ -160,6 +168,15 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
     case WM_SIZE:
         if (m_graphicsEngine) {
             m_graphicsEngine->Resize(LOWORD(lParam), HIWORD(lParam));
+        }
+        return 0;
+
+    case WM_TIMER:
+        if (wParam == 1) {
+            // 清除红色闪烁效果
+            m_showInvalidPointFlash = false;
+            KillTimer(m_hwnd, 1);
+            InvalidateRect(m_hwnd, nullptr, FALSE);
         }
         return 0;
 
@@ -400,7 +417,7 @@ void MainWindow::OnLButtonDown(int x, int y) {
         if (!m_isDrawingMultiBezier) {
             // 开始绘制新的多点Bezier曲线
             m_currentMultiBezier = std::make_shared<MultiBezier>();
-            m_currentMultiBezier->SetEditing(true);  // 设置为编辑状态
+            m_currentMultiBezier->SetEditing(true); // 设置为编辑状态
             m_currentMultiBezier->AddControlPoint(currentPoint);
             m_isDrawingMultiBezier = true;
             OutputDebugStringA("开始绘制多点Bezier曲线，添加第一个控制点\n");
@@ -408,7 +425,7 @@ void MainWindow::OnLButtonDown(int x, int y) {
             // 添加控制点
             m_currentMultiBezier->AddControlPoint(currentPoint);
             int pointCount = m_currentMultiBezier->GetControlPoints().size();
-            
+
             char debugMsg[100];
             sprintf_s(debugMsg, "添加控制点 #%d\n", pointCount);
             OutputDebugStringA(debugMsg);
@@ -420,18 +437,13 @@ void MainWindow::OnLButtonDown(int x, int y) {
         // 填充模式：查找点击位置的封闭图形并应用填充算法
         {
             bool foundShape = false;
-            for (const auto& shape : m_graphicsEngine->GetShapes()) {
+            for (const auto &shape : m_graphicsEngine->GetShapes()) {
                 ShapeType type = shape->GetType();
                 // 只对封闭图形进行填充（包括多义线组成的封闭多边形）
-                if (type == ShapeType::CIRCLE || type == ShapeType::RECTANGLE ||
-                    type == ShapeType::TRIANGLE || type == ShapeType::DIAMOND ||
-                    type == ShapeType::PARALLELOGRAM || type == ShapeType::POLYLINE) {
-                    
+                if (type == ShapeType::CIRCLE || type == ShapeType::RECTANGLE || type == ShapeType::TRIANGLE || type == ShapeType::DIAMOND || type == ShapeType::PARALLELOGRAM || type == ShapeType::POLYLINE) {
                     // 简单检查点是否在边界框内
                     D2D1_RECT_F bounds = shape->GetBounds();
-                    if (currentPoint.x >= bounds.left && currentPoint.x <= bounds.right &&
-                        currentPoint.y >= bounds.top && currentPoint.y <= bounds.bottom) {
-                        
+                    if (currentPoint.x >= bounds.left && currentPoint.x <= bounds.right && currentPoint.y >= bounds.top && currentPoint.y <= bounds.bottom) {
                         // 应用填充算法
                         std::vector<D2D1_POINT_2F> fillPixels;
                         if (m_currentMode == DrawingMode::SCANLINE_FILL) {
@@ -441,7 +453,7 @@ void MainWindow::OnLButtonDown(int x, int y) {
                             fillPixels = FillAlgorithms::SeedFill(shape.get(), currentPoint);
                             OutputDebugStringA("应用种子填充算法\n");
                         }
-                        
+
                         if (!fillPixels.empty()) {
                             shape->SetFillPixels(fillPixels);
                             char debugMsg[100];
@@ -453,7 +465,7 @@ void MainWindow::OnLButtonDown(int x, int y) {
                     }
                 }
             }
-            
+
             if (!foundShape) {
                 OutputDebugStringA("未找到可填充的封闭图形\n");
             }
@@ -534,16 +546,47 @@ void MainWindow::OnLButtonDown(int x, int y) {
             }
         }
         break;
+
+    case DrawingMode::POLYGON:
+        if (!m_isDrawingPolygon) {
+            // 开始绘制新的多边形
+            m_polygonPoints.clear();
+            m_polygonPoints.push_back(currentPoint);
+            m_isDrawingPolygon = true;
+            m_currentPolygon = std::make_shared<Polygon>(m_polygonPoints);
+            OutputDebugStringA("开始绘制多边形，添加第一个点\n");
+        } else {
+            // 用当前已确定的点创建临时多边形来检查相交
+            char debugMsg[200];
+            sprintf_s(debugMsg, "OnLButtonDown: m_polygonPoints有%zu个点, currentPoint=(%.1f,%.1f)\n", 
+                      m_polygonPoints.size(), currentPoint.x, currentPoint.y);
+            OutputDebugStringA(debugMsg);
+            
+            auto tempPolygon = std::make_shared<Polygon>(m_polygonPoints);
+            
+            // 检查是否会导致自相交
+            if (tempPolygon->WouldCauseIntersection(currentPoint)) {
+                // 显示红色闪烁提示
+                m_showInvalidPointFlash = true;
+                m_invalidPoint = currentPoint;
+                m_flashStartTime = GetTickCount();
+                OutputDebugStringA("检测到自相交，拒绝添加点\n");
+                // 触发重绘以显示闪烁效果
+                InvalidateRect(m_hwnd, nullptr, FALSE);
+                // 设置定时器以清除闪烁效果
+                SetTimer(m_hwnd, 1, 300, nullptr);
+            } else {
+                // 添加点
+                m_polygonPoints.push_back(currentPoint);
+                m_currentPolygon = std::make_shared<Polygon>(m_polygonPoints);
+                char debugMsg2[100];
+                sprintf_s(debugMsg2, "添加多边形顶点 #%zu\n", m_polygonPoints.size());
+                OutputDebugStringA(debugMsg2);
+            }
+        }
+        break;
     }
 
-    InvalidateRect(m_hwnd, nullptr, FALSE);
-}
-
-void MainWindow::OnLButtonUp(int x, int y) {
-    // 结束变换操作
-    if (m_isTransforming) {
-        EndTransform();
-    }
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -685,6 +728,30 @@ void MainWindow::OnMouseMove(int x, int y) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 
+    // 多边形模式：实时预览当前边并检测闭合边相交
+    if (m_currentMode == DrawingMode::POLYGON && m_isDrawingPolygon && !m_polygonPoints.empty()) {
+        // 更新当前多边形预览（包含鼠标位置）
+        std::vector<D2D1_POINT_2F> previewPoints = m_polygonPoints;
+        previewPoints.push_back(currentPoint);
+        m_currentPolygon = std::make_shared<Polygon>(previewPoints);
+        
+        // 如果已有至少3个点，检测闭合边是否会相交
+        if (m_polygonPoints.size() >= 3) {
+            auto tempPolygon = std::make_shared<Polygon>(m_polygonPoints);
+            // 检查从当前鼠标位置到第一个点的闭合边是否会相交
+            if (tempPolygon->WouldCauseIntersection(currentPoint, true)) {
+                // 闭合边会相交，显示红色提示（但不设置定时器，因为鼠标一直在移动）
+                m_showInvalidPointFlash = true;
+                m_invalidPoint = currentPoint;
+            } else {
+                // 闭合边不相交，清除红色提示
+                m_showInvalidPointFlash = false;
+            }
+        }
+        
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+
     // 切线模式预览
     if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && m_selectedCircleForTangent) {
         m_tempTangents = m_graphicsEngine->CreateTangents(currentPoint, m_selectedCircleForTangent);
@@ -711,7 +778,6 @@ void MainWindow::OnMouseMove(int x, int y) {
     }
 }
 
-// 辅助函数
 float MainWindow::CalculateDistance(D2D1_POINT_2F p1, D2D1_POINT_2F p2) {
     return sqrtf(powf(p2.x - p1.x, 2) + powf(p2.y - p1.y, 2));
 }
@@ -751,6 +817,11 @@ void MainWindow::ResetDrawingState() {
     m_bezierClickCount = 0;
     m_bezierControl1 = D2D1::Point2F(0, 0);
     m_bezierControl2 = D2D1::Point2F(0, 0);
+    // 重置多边形状态
+    m_polygonPoints.clear();
+    m_isDrawingPolygon = false;
+    m_currentPolygon.reset();
+    m_showInvalidPointFlash = false;
 }
 
 void MainWindow::ResetTangentState() {
@@ -767,8 +838,8 @@ void MainWindow::ResetCenterState() {
 void MainWindow::OnRButtonDown(int x, int y) {
     // 右键完成多点Bezier曲线绘制
     if (m_isDrawingMultiBezier && m_currentMultiBezier) {
-        m_currentMultiBezier->ClearPreviewPoint();  // 清除预览点
-        m_currentMultiBezier->SetEditing(false);     // 清除编辑状态
+        m_currentMultiBezier->ClearPreviewPoint(); // 清除预览点
+        m_currentMultiBezier->SetEditing(false);   // 清除编辑状态
         if (m_currentMultiBezier->GetControlPoints().size() >= 2) {
             m_graphicsEngine->AddShape(m_currentMultiBezier);
             OutputDebugStringA("多点Bezier曲线绘制完成（使用De Casteljau算法）\n");
@@ -780,7 +851,7 @@ void MainWindow::OnRButtonDown(int x, int y) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
         return;
     }
-    
+
     // 右键结束曲线绘制
     if (m_currentMode == DrawingMode::CURVE && m_isDrawingCurve && m_currentCurve) {
         ResetDrawingState();
@@ -792,6 +863,44 @@ void MainWindow::OnRButtonDown(int x, int y) {
         }
         m_polyPoints.clear();
         m_tempPolyLine.reset();
+    } else if (m_currentMode == DrawingMode::POLYGON) {
+        // 右键完成多边形绘制
+        if (m_polygonPoints.size() >= 3) {
+            // 检查闭合边是否会导致自相交
+            auto tempPolygon = std::make_shared<Polygon>(m_polygonPoints);
+            D2D1_POINT_2F lastPoint = m_polygonPoints.back();
+            
+            // 使用checkClosingEdge=true来检查从lastPoint到firstPoint的闭合边
+            if (tempPolygon->WouldCauseIntersection(lastPoint, true)) {
+                // 闭合边会导致自相交，显示红色闪烁并拒绝完成
+                m_showInvalidPointFlash = true;
+                m_invalidPoint = lastPoint;
+                m_flashStartTime = GetTickCount();
+                OutputDebugStringA("闭合边会导致自相交，无法完成多边形\n");
+                InvalidateRect(m_hwnd, nullptr, FALSE);
+                SetTimer(m_hwnd, 1, 300, nullptr);
+            } else {
+                // 创建最终的多边形
+                auto finalPolygon = std::make_shared<Polygon>(m_polygonPoints);
+                finalPolygon->SetLineWidth(m_currentLineWidth);
+                finalPolygon->SetLineStyle(m_currentLineStyle);
+                m_graphicsEngine->AddShape(finalPolygon);
+                OutputDebugStringA("多边形绘制完成\n");
+                
+                // 清理状态
+                m_polygonPoints.clear();
+                m_currentPolygon.reset();
+                m_isDrawingPolygon = false;
+                m_showInvalidPointFlash = false;
+            }
+        } else {
+            OutputDebugStringA("顶点不足3个，无法形成多边形\n");
+            // 清理状态
+            m_polygonPoints.clear();
+            m_currentPolygon.reset();
+            m_isDrawingPolygon = false;
+            m_showInvalidPointFlash = false;
+        }
     } else {
         // 其他模式的右键取消
         ResetDrawingState();
@@ -802,7 +911,6 @@ void MainWindow::OnRButtonDown(int x, int y) {
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
-
 void MainWindow::OnKeyDown(WPARAM wParam) {
     // 测试线宽功能的键盘快捷键
     if (wParam >= '1' && wParam <= '5') {
@@ -813,26 +921,26 @@ void MainWindow::OnKeyDown(WPARAM wParam) {
                 if (type == ShapeType::LINE || type == ShapeType::CIRCLE) {
                     LineWidth newWidth;
                     switch (wParam) {
-                        case '1': newWidth = LineWidth::WIDTH_1PX; break;
-                        case '2': newWidth = LineWidth::WIDTH_2PX; break;
-                        case '3': newWidth = LineWidth::WIDTH_4PX; break;
-                        case '4': newWidth = LineWidth::WIDTH_8PX; break;
-                        case '5': newWidth = LineWidth::WIDTH_16PX; break;
+                    case '1': newWidth = LineWidth::WIDTH_1PX; break;
+                    case '2': newWidth = LineWidth::WIDTH_2PX; break;
+                    case '3': newWidth = LineWidth::WIDTH_4PX; break;
+                    case '4': newWidth = LineWidth::WIDTH_8PX; break;
+                    case '5': newWidth = LineWidth::WIDTH_16PX; break;
                     }
                     selectedShape->SetLineWidth(newWidth);
                     m_currentLineWidth = newWidth;
-                    
+
                     char debugMsg[100];
                     sprintf_s(debugMsg, "Line width set to %dpx via keyboard\n", static_cast<int>(newWidth));
                     OutputDebugStringA(debugMsg);
-                    
+
                     InvalidateRect(m_hwnd, nullptr, FALSE);
                     return;
                 }
             }
         }
     }
-    
+
     // 按C键清除所有选择，确保图形显示为黑色
     if (wParam == 'C') {
         m_graphicsEngine->ClearSelection();
@@ -1164,6 +1272,31 @@ void MainWindow::OnPaint() {
             }
         }
 
+        // 绘制正在绘制的多边形预览
+        if (m_currentMode == DrawingMode::POLYGON && m_isDrawingPolygon && m_currentPolygon) {
+            ID2D1SolidColorBrush *tempBrush = nullptr;
+            HRESULT hr = m_graphicsEngine->GetRenderTarget()->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Green), &tempBrush);
+
+            if (SUCCEEDED(hr) && tempBrush) {
+                m_currentPolygon->Draw(m_graphicsEngine->GetRenderTarget(), tempBrush, tempBrush, nullptr);
+                tempBrush->Release();
+            }
+        }
+
+        // 绘制红色闪烁的非法点提示
+        if (m_showInvalidPointFlash) {
+            ID2D1SolidColorBrush *redBrush = nullptr;
+            HRESULT hr = m_graphicsEngine->GetRenderTarget()->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Red), &redBrush);
+
+            if (SUCCEEDED(hr) && redBrush) {
+                D2D1_ELLIPSE ellipse = D2D1::Ellipse(m_invalidPoint, 8.0f, 8.0f);
+                m_graphicsEngine->GetRenderTarget()->FillEllipse(ellipse, redBrush);
+                redBrush->Release();
+            }
+        }
+
         // 绘制切线预览和切点坐标
         if (m_currentMode == DrawingMode::TANGENT && m_isDrawingTangent && m_selectedCircleForTangent && !m_tempTangents.empty()) {
             ID2D1RenderTarget *pRenderTarget = m_graphicsEngine->GetRenderTarget();
@@ -1367,6 +1500,7 @@ void MainWindow::OnPaint() {
         case DrawingMode::MULTI_BEZIER: name = L"MULTI_BEZIER"; break;
         case DrawingMode::SCANLINE_FILL: name = L"SCANLINE_FILL"; break;
         case DrawingMode::SEED_FILL: name = L"SEED_FILL"; break;
+        case DrawingMode::POLYGON: name = L"POLYGON"; break;
         }
         WCHAR txt[64];
         swprintf_s(txt, L"Mode: %s", name);
@@ -1460,8 +1594,8 @@ void MainWindow::OnCommand(WPARAM wParam) {
         m_currentMode = DrawingMode::BRESENHAM_CIRCLE;
         break;
     // 线宽菜单项 - 应用到选中的图形
-    case 32799: 
-        m_currentLineWidth = LineWidth::WIDTH_1PX; 
+    case 32799:
+        m_currentLineWidth = LineWidth::WIDTH_1PX;
         if (m_graphicsEngine->IsShapeSelected()) {
             auto selectedShape = m_graphicsEngine->GetSelectedShape();
             if (selectedShape) {
@@ -1474,8 +1608,8 @@ void MainWindow::OnCommand(WPARAM wParam) {
             }
         }
         break;
-    case 32800: 
-        m_currentLineWidth = LineWidth::WIDTH_2PX; 
+    case 32800:
+        m_currentLineWidth = LineWidth::WIDTH_2PX;
         if (m_graphicsEngine->IsShapeSelected()) {
             auto selectedShape = m_graphicsEngine->GetSelectedShape();
             if (selectedShape) {
@@ -1486,8 +1620,8 @@ void MainWindow::OnCommand(WPARAM wParam) {
             }
         }
         break;
-    case 32801: 
-        m_currentLineWidth = LineWidth::WIDTH_4PX; 
+    case 32801:
+        m_currentLineWidth = LineWidth::WIDTH_4PX;
         if (m_graphicsEngine->IsShapeSelected()) {
             auto selectedShape = m_graphicsEngine->GetSelectedShape();
             if (selectedShape) {
@@ -1498,8 +1632,8 @@ void MainWindow::OnCommand(WPARAM wParam) {
             }
         }
         break;
-    case 32802: 
-        m_currentLineWidth = LineWidth::WIDTH_8PX; 
+    case 32802:
+        m_currentLineWidth = LineWidth::WIDTH_8PX;
         if (m_graphicsEngine->IsShapeSelected()) {
             auto selectedShape = m_graphicsEngine->GetSelectedShape();
             if (selectedShape) {
@@ -1510,8 +1644,8 @@ void MainWindow::OnCommand(WPARAM wParam) {
             }
         }
         break;
-    case 32803: 
-        m_currentLineWidth = LineWidth::WIDTH_16PX; 
+    case 32803:
+        m_currentLineWidth = LineWidth::WIDTH_16PX;
         if (m_graphicsEngine->IsShapeSelected()) {
             auto selectedShape = m_graphicsEngine->GetSelectedShape();
             if (selectedShape) {
@@ -1581,6 +1715,18 @@ void MainWindow::OnCommand(WPARAM wParam) {
     case 32812: // 种子填充法
         m_currentMode = DrawingMode::SEED_FILL;
         OutputDebugStringA("种子填充模式已激活\n");
+        break;
+    case 32813: // 选中图元后，再用鼠标指定旋转点，让图元绕该点旋转
+        break;
+    case 32814: // 绘制任意多边形
+        m_currentMode = DrawingMode::POLYGON;
+        OutputDebugStringA("多边形绘制模式已激活\n");
+        break;
+    case 32816: // 利用LiangBarsky算法裁剪矩形框内直线
+        break;
+    case 32817: // 利用Sutherland-Hodgman算法裁剪矩形框内多边形
+        break;
+    case 32818: // 利用Weiler-Atherton算法裁剪矩形内多边形
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }

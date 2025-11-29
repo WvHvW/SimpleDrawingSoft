@@ -55,6 +55,14 @@
 #define ID_32810                        32810
 #define ID_32811                        32811
 #define ID_32812                        32812
+#define ID_32813                        32813
+#define ID_32814                        32814
+#define ID_32815                        32815
+#define ID_32816                        32816
+#define ID_32817                        32817
+#define ID_32818                        32818
+#define ID_32819                        32819
+#define ID_32820                        32820
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
@@ -63,7 +71,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NO_MFC                     1
 #define _APS_NEXT_RESOURCE_VALUE        129
-#define _APS_NEXT_COMMAND_VALUE         32813
+#define _APS_NEXT_COMMAND_VALUE         32821
 #define _APS_NEXT_CONTROL_VALUE         1000
 #define _APS_NEXT_SYMED_VALUE           110
 #endif

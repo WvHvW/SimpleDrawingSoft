@@ -892,3 +892,94 @@ private:
     static D2D1_POINT_2F DeCasteljau(
         const std::vector<D2D1_POINT_2F>& controlPoints, float t);
 };
+
+// 多边形类
+class Polygon : public Shape {
+public:
+    Polygon(const std::vector<D2D1_POINT_2F> &points = {});
+
+    void Draw(ID2D1RenderTarget *pRenderTarget,
+              ID2D1SolidColorBrush *pBrush,
+              ID2D1SolidColorBrush *pSelectedBrush,
+              ID2D1StrokeStyle *pDashStrokeStyle) override;
+
+    bool HitTest(D2D1_POINT_2F point) override;
+    void Move(float dx, float dy) override;
+    void Rotate(float angle) override;
+    void Scale(float scale) override;
+
+    std::string Serialize() override;
+
+    void AddPoint(D2D1_POINT_2F point);
+    const std::vector<D2D1_POINT_2F> &GetPoints() const {
+        return m_points;
+    }
+    void SetPoints(const std::vector<D2D1_POINT_2F> &points) {
+        m_points = points;
+    }
+
+    D2D1_POINT_2F GetCenter() const override {
+        if (m_points.empty()) {
+            return D2D1::Point2F(0, 0);
+        }
+
+        float sumX = 0, sumY = 0;
+        for (const auto &point : m_points) {
+            sumX += point.x;
+            sumY += point.y;
+        }
+
+        return D2D1::Point2F(sumX / m_points.size(), sumY / m_points.size());
+    }
+
+    D2D1_RECT_F GetBounds() const override {
+        if (m_points.empty()) {
+            return D2D1::RectF(0, 0, 0, 0);
+        }
+
+        float minX = m_points[0].x;
+        float minY = m_points[0].y;
+        float maxX = m_points[0].x;
+        float maxY = m_points[0].y;
+
+        for (const auto &point : m_points) {
+            minX = min(minX, point.x);
+            minY = min(minY, point.y);
+            maxX = max(maxX, point.x);
+            maxY = max(maxY, point.y);
+        }
+
+        return D2D1::RectF(minX, minY, maxX, maxY);
+    }
+
+    // 重写离散线段函数 - 多边形的各个边
+    std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> GetIntersectionSegments() const override {
+        std::vector<std::pair<D2D1_POINT_2F, D2D1_POINT_2F>> segments;
+
+        if (m_points.size() < 2) {
+            return segments;
+        }
+
+        // 添加所有边，包括闭合边
+        for (size_t i = 1; i < m_points.size(); ++i) {
+            segments.push_back({m_points[i - 1], m_points[i]});
+        }
+        // 闭合多边形
+        if (m_points.size() >= 3) {
+            segments.push_back({m_points.back(), m_points[0]});
+        }
+
+        return segments;
+    }
+
+    // 检查新点是否会导致自相交
+    // checkClosingEdge: 是否检查从newPoint到第一个点的闭合边
+    bool WouldCauseIntersection(D2D1_POINT_2F newPoint, bool checkClosingEdge = false) const;
+
+private:
+    std::vector<D2D1_POINT_2F> m_points;
+
+    // 辅助函数：检查两条线段是否相交
+    static bool SegmentsIntersect(D2D1_POINT_2F p1, D2D1_POINT_2F p2, 
+                                   D2D1_POINT_2F p3, D2D1_POINT_2F p4);
+};
