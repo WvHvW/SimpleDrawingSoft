@@ -35,7 +35,8 @@ enum class DrawingMode {
     MULTI_BEZIER,  // 多点Bezier曲线
     SCANLINE_FILL, // 栅栏填充
     SEED_FILL,     // 种子填充
-    POLYGON        // 多边形
+    POLYGON,       // 多边形
+    CLIP_LINES     // Liang-Barsky裁剪
 };
 
 enum class TransformMode {

@@ -54,6 +54,12 @@ private:
     bool m_waitingForRotationCenter = false; // 等待用户指定旋转中心
     D2D1_POINT_2F m_rotationCenter; // 定点旋转的中心点
 
+    // Liang-Barsky裁剪状态
+    bool m_isClipping = false;
+    D2D1_POINT_2F m_clipRectStart;
+    D2D1_POINT_2F m_clipRectEnd;
+    bool m_clipRectDrawing = false;
+
     // 贝塞尔曲线控制点
     D2D1_POINT_2F m_bezierControl1, m_bezierControl2;
     int m_bezierClickCount = 0;
@@ -104,6 +110,11 @@ private:
     void UpdateTransform(D2D1_POINT_2F point);
     void EndTransform();
     void CancelTransform();
+
+    // Liang-Barsky裁剪方法
+    bool LiangBarskyClip(float &x1, float &y1, float &x2, float &y2, 
+                         float xmin, float ymin, float xmax, float ymax);
+    void ApplyClipping();
 
     void SaveToFile();
     void LoadFromFile();
@@ -607,6 +618,24 @@ void MainWindow::OnLButtonDown(int x, int y) {
             }
         }
         break;
+
+    case DrawingMode::CLIP_LINES:
+        if (!m_clipRectDrawing) {
+            // 开始绘制裁剪矩形
+            m_clipRectStart = currentPoint;
+            m_clipRectEnd = currentPoint;  // 初始化为起点，避免闪烁
+            m_clipRectDrawing = true;
+        } else {
+            // 完成裁剪矩形并执行裁剪
+            m_clipRectEnd = currentPoint;
+            ApplyClipping();
+            m_clipRectDrawing = false;
+            m_currentMode = DrawingMode::SELECT;
+        }
+        break;
+
+    default:
+        break;
     }
 
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -797,6 +826,12 @@ void MainWindow::OnMouseMove(int x, int y) {
         } else {
             SetCursor(LoadCursor(nullptr, IDC_ARROW)); // 默认箭头光标
         }
+    }
+
+    // 裁剪模式：实时预览裁剪矩形
+    if (m_currentMode == DrawingMode::CLIP_LINES && m_clipRectDrawing) {
+        m_clipRectEnd = currentPoint;
+        InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
 
@@ -1141,6 +1176,151 @@ void MainWindow::EndTransform() {
 void MainWindow::CancelTransform() {
     m_isTransforming = false;
     m_transformMode = TransformMode::NONE;
+}
+
+// Liang-Barsky裁剪算法实现
+bool MainWindow::LiangBarskyClip(float &x1, float &y1, float &x2, float &y2,
+                                  float xmin, float ymin, float xmax, float ymax) {
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float p[4] = {-dx, dx, -dy, dy};
+    float q[4] = {x1 - xmin, xmax - x1, y1 - ymin, ymax - y1};
+    
+    float u1 = 0.0f, u2 = 1.0f;
+    
+    for (int i = 0; i < 4; i++) {
+        if (p[i] == 0) {
+            // 线段平行于边界
+            if (q[i] < 0) {
+                return false; // 完全在外部
+            }
+        } else {
+            float t = q[i] / p[i];
+            if (p[i] < 0) {
+                // 从外部进入
+                if (t > u1) u1 = t;
+            } else {
+                // 从内部离开
+                if (t < u2) u2 = t;
+            }
+        }
+    }
+    
+    if (u1 > u2) {
+        return false; // 线段完全在外部
+    }
+    
+    // 计算裁剪后的端点
+    float newX1 = x1 + u1 * dx;
+    float newY1 = y1 + u1 * dy;
+    float newX2 = x1 + u2 * dx;
+    float newY2 = y1 + u2 * dy;
+    
+    x1 = newX1;
+    y1 = newY1;
+    x2 = newX2;
+    y2 = newY2;
+    
+    return true;
+}
+
+void MainWindow::ApplyClipping() {
+    float xmin = min(m_clipRectStart.x, m_clipRectEnd.x);
+    float ymin = min(m_clipRectStart.y, m_clipRectEnd.y);
+    float xmax = max(m_clipRectStart.x, m_clipRectEnd.x);
+    float ymax = max(m_clipRectStart.y, m_clipRectEnd.y);
+    
+    auto &shapes = m_graphicsEngine->GetShapes();
+    std::vector<std::shared_ptr<Shape>> newShapes;
+    
+    for (const auto &shape : shapes) {
+        ShapeType type = shape->GetType();
+        
+        // 对所有直线类型进行裁剪
+        if (type == ShapeType::LINE) {
+            D2D1_POINT_2F start, end;
+            LineWidth lineWidth = LineWidth::WIDTH_1PX;
+            LineStyle lineStyle = LineStyle::SOLID;
+            std::shared_ptr<Shape> clippedShape;
+            
+            // 尝试转换为不同类型的直线并获取端点
+            if (auto line = std::dynamic_pointer_cast<Line>(shape)) {
+                start = line->GetStart();
+                end = line->GetEnd();
+                lineWidth = line->GetLineWidth();
+                lineStyle = line->GetLineStyle();
+                
+                float x1 = start.x, y1 = start.y;
+                float x2 = end.x, y2 = end.y;
+                
+                if (LiangBarskyClip(x1, y1, x2, y2, xmin, ymin, xmax, ymax)) {
+                    // 创建裁剪后的Line
+                    clippedShape = std::make_shared<Line>(
+                        D2D1::Point2F(x1, y1),
+                        D2D1::Point2F(x2, y2)
+                    );
+                } else {
+                    // 完全在外部，保留原始直线
+                    clippedShape = line;
+                }
+            } else if (auto midLine = std::dynamic_pointer_cast<MidpointLine>(shape)) {
+                start = midLine->GetStart();
+                end = midLine->GetEnd();
+                lineWidth = midLine->GetLineWidth();
+                lineStyle = midLine->GetLineStyle();
+                
+                float x1 = start.x, y1 = start.y;
+                float x2 = end.x, y2 = end.y;
+                
+                if (LiangBarskyClip(x1, y1, x2, y2, xmin, ymin, xmax, ymax)) {
+                    // 创建裁剪后的MidpointLine
+                    clippedShape = std::make_shared<MidpointLine>(
+                        D2D1::Point2F(x1, y1),
+                        D2D1::Point2F(x2, y2)
+                    );
+                } else {
+                    // 完全在外部，保留原始直线
+                    clippedShape = midLine;
+                }
+            } else if (auto bresLine = std::dynamic_pointer_cast<BresenhamLine>(shape)) {
+                start = bresLine->GetStart();
+                end = bresLine->GetEnd();
+                lineWidth = bresLine->GetLineWidth();
+                lineStyle = bresLine->GetLineStyle();
+                
+                float x1 = start.x, y1 = start.y;
+                float x2 = end.x, y2 = end.y;
+                
+                if (LiangBarskyClip(x1, y1, x2, y2, xmin, ymin, xmax, ymax)) {
+                    // 创建裁剪后的BresenhamLine
+                    clippedShape = std::make_shared<BresenhamLine>(
+                        D2D1::Point2F(x1, y1),
+                        D2D1::Point2F(x2, y2)
+                    );
+                } else {
+                    // 完全在外部，保留原始直线
+                    clippedShape = bresLine;
+                }
+            }
+            
+            if (clippedShape) {
+                clippedShape->SetLineWidth(lineWidth);
+                clippedShape->SetLineStyle(lineStyle);
+                newShapes.push_back(clippedShape);
+            }
+        } else {
+            // 保留其他类型的图元
+            newShapes.push_back(shape);
+        }
+    }
+    
+    // 清空原有图元并添加裁剪后的图元
+    m_graphicsEngine->ClearAllShapes();
+    for (const auto &shape : newShapes) {
+        m_graphicsEngine->AddShape(shape);
+    }
+    
+    OutputDebugStringA("Liang-Barsky裁剪完成\n");
 }
 
 void MainWindow::DrawIntersectionPoints(ID2D1RenderTarget *rt) {
@@ -1501,6 +1681,24 @@ void MainWindow::OnPaint() {
 
         DrawSelectedIntersectionShapes(m_graphicsEngine->GetRenderTarget());
 
+        // 绘制裁剪矩形预览
+        if (m_currentMode == DrawingMode::CLIP_LINES && m_clipRectDrawing) {
+            ID2D1SolidColorBrush *clipBrush = nullptr;
+            HRESULT hr = m_graphicsEngine->GetRenderTarget()->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Blue, 0.5f), &clipBrush);
+            
+            if (SUCCEEDED(hr) && clipBrush) {
+                D2D1_RECT_F clipRect = D2D1::RectF(
+                    min(m_clipRectStart.x, m_clipRectEnd.x),
+                    min(m_clipRectStart.y, m_clipRectEnd.y),
+                    max(m_clipRectStart.x, m_clipRectEnd.x),
+                    max(m_clipRectStart.y, m_clipRectEnd.y)
+                );
+                m_graphicsEngine->GetRenderTarget()->DrawRectangle(clipRect, clipBrush, 2.0f);
+                clipBrush->Release();
+            }
+        }
+
         /* ----- 右上角模式提示 ----- */
         ID2D1RenderTarget *rt = m_graphicsEngine->GetRenderTarget();
         // 1. 第一次进来时把 DirectWrite 工厂和格式建好
@@ -1544,6 +1742,7 @@ void MainWindow::OnPaint() {
         case DrawingMode::SCANLINE_FILL: name = L"SCANLINE_FILL"; break;
         case DrawingMode::SEED_FILL: name = L"SEED_FILL"; break;
         case DrawingMode::POLYGON: name = L"POLYGON"; break;
+        case DrawingMode::CLIP_LINES: name = L"CLIP_LINES"; break;
         }
         WCHAR txt[64];
         swprintf_s(txt, L"Mode: %s", name);
@@ -1769,6 +1968,9 @@ void MainWindow::OnCommand(WPARAM wParam) {
         OutputDebugStringA("多边形绘制模式已激活\n");
         break;
     case 32816: // 利用LiangBarsky算法裁剪矩形框内直线
+        m_currentMode = DrawingMode::CLIP_LINES;
+        m_clipRectDrawing = false;
+        OutputDebugStringA("Liang-Barsky裁剪模式已激活\n");
         break;
     case 32817: // 利用Sutherland-Hodgman算法裁剪矩形框内多边形
         break;
