@@ -36,7 +36,9 @@ enum class DrawingMode {
     SCANLINE_FILL, // Õ¤À¸Ìî³ä
     SEED_FILL,     // ÖÖ×ÓÌî³ä
     POLYGON,       // ¶à±ßÐÎ
-    CLIP_LINES     // Liang-Barsky²Ã¼ô
+    CLIP_LINES,    // Liang-Barsky²Ã¼ô
+    CLIP_POLYGON_SH,  // Sutherland-Hodgman¶à±ßÐÎ²Ã¼ô
+    CLIP_POLYGON_WA   // Weiler-Atherton¶à±ßÐÎ²Ã¼ô
 };
 
 enum class TransformMode {

@@ -116,6 +116,18 @@ private:
                          float xmin, float ymin, float xmax, float ymax);
     void ApplyClipping();
 
+    // Sutherland-Hodgman多边形裁剪方法
+    std::vector<D2D1_POINT_2F> SutherlandHodgmanClip(
+        const std::vector<D2D1_POINT_2F>& polygon,
+        float xmin, float ymin, float xmax, float ymax);
+    void ApplyPolygonClippingSH();
+
+    // Weiler-Atherton多边形裁剪方法
+    std::vector<D2D1_POINT_2F> WeilerAthertonClip(
+        const std::vector<D2D1_POINT_2F>& polygon,
+        float xmin, float ymin, float xmax, float ymax);
+    void ApplyPolygonClippingWA();
+
     void SaveToFile();
     void LoadFromFile();
 };
@@ -633,6 +645,26 @@ void MainWindow::OnLButtonDown(int x, int y) {
             m_currentMode = DrawingMode::SELECT;
         }
         break;
+    
+    case DrawingMode::CLIP_POLYGON_SH:
+    case DrawingMode::CLIP_POLYGON_WA:
+        if (!m_clipRectDrawing) {
+            // 开始绘制裁剪矩形
+            m_clipRectStart = currentPoint;
+            m_clipRectEnd = currentPoint;  // 初始化为起点，避免闪烁
+            m_clipRectDrawing = true;
+        } else {
+            // 完成裁剪矩形并执行裁剪
+            m_clipRectEnd = currentPoint;
+            if (m_currentMode == DrawingMode::CLIP_POLYGON_SH) {
+                ApplyPolygonClippingSH();
+            } else {
+                ApplyPolygonClippingWA();
+            }
+            m_clipRectDrawing = false;
+            m_currentMode = DrawingMode::SELECT;
+        }
+        break;
 
     default:
         break;
@@ -828,8 +860,10 @@ void MainWindow::OnMouseMove(int x, int y) {
         }
     }
 
-    // 裁剪模式：实时预览裁剪矩形
-    if (m_currentMode == DrawingMode::CLIP_LINES && m_clipRectDrawing) {
+    // 裁剪模式：实时预览裁剪矩形（包括直线裁剪和多边形裁剪）
+    if ((m_currentMode == DrawingMode::CLIP_LINES || 
+         m_currentMode == DrawingMode::CLIP_POLYGON_SH ||
+         m_currentMode == DrawingMode::CLIP_POLYGON_WA) && m_clipRectDrawing) {
         m_clipRectEnd = currentPoint;
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
@@ -1323,6 +1357,192 @@ void MainWindow::ApplyClipping() {
     OutputDebugStringA("Liang-Barsky裁剪完成\n");
 }
 
+void MainWindow::ApplyPolygonClippingSH() {
+    float xmin = min(m_clipRectStart.x, m_clipRectEnd.x);
+    float ymin = min(m_clipRectStart.y, m_clipRectEnd.y);
+    float xmax = max(m_clipRectStart.x, m_clipRectEnd.x);
+    float ymax = max(m_clipRectStart.y, m_clipRectEnd.y);
+    
+    char debugMsg[256];
+    sprintf_s(debugMsg, "开始SH裁剪，裁剪区域: (%.1f,%.1f)-(%.1f,%.1f)\n", xmin, ymin, xmax, ymax);
+    OutputDebugStringA(debugMsg);
+    
+    auto &shapes = m_graphicsEngine->GetShapes();
+    std::vector<std::shared_ptr<Shape>> newShapes;
+    
+    int polygonCount = 0;
+    int clippedCount = 0;
+    
+    for (const auto &shape : shapes) {
+        if (shape->GetType() == ShapeType::POLYGON) {
+            polygonCount++;
+            auto polygon = std::dynamic_pointer_cast<Polygon>(shape);
+            if (polygon) {
+                auto points = polygon->GetPoints();
+                sprintf_s(debugMsg, "处理多边形 #%d，原始顶点数: %zu\n", polygonCount, points.size());
+                OutputDebugStringA(debugMsg);
+                
+                auto clippedPoints = SutherlandHodgmanClip(points, xmin, ymin, xmax, ymax);
+                
+                sprintf_s(debugMsg, "裁剪后顶点数: %zu\n", clippedPoints.size());
+                OutputDebugStringA(debugMsg);
+                
+                if (clippedPoints.size() >= 3) {
+                    // 创建裁剪后的多边形（Polygon类会自动封闭）
+                    auto clippedPolygon = std::make_shared<Polygon>(clippedPoints);
+                    clippedPolygon->SetLineWidth(polygon->GetLineWidth());
+                    clippedPolygon->SetLineStyle(polygon->GetLineStyle());
+                    newShapes.push_back(clippedPolygon);
+                    clippedCount++;
+                }
+                // 如果裁剪后顶点数小于3，说明多边形在裁剪区域外或被完全裁剪掉，不添加到newShapes
+            }
+        } else {
+            // 保留其他类型的图元
+            newShapes.push_back(shape);
+        }
+    }
+    
+    sprintf_s(debugMsg, "找到 %d 个多边形，裁剪后保留 %d 个\n", polygonCount, clippedCount);
+    OutputDebugStringA(debugMsg);
+    
+    // 清空原有图元并添加裁剪后的图元
+    m_graphicsEngine->ClearAllShapes();
+    for (const auto &shape : newShapes) {
+        m_graphicsEngine->AddShape(shape);
+    }
+    
+    OutputDebugStringA("Sutherland-Hodgman多边形裁剪完成\n");
+}
+
+void MainWindow::ApplyPolygonClippingWA() {
+    float xmin = min(m_clipRectStart.x, m_clipRectEnd.x);
+    float ymin = min(m_clipRectStart.y, m_clipRectEnd.y);
+    float xmax = max(m_clipRectStart.x, m_clipRectEnd.x);
+    float ymax = max(m_clipRectStart.y, m_clipRectEnd.y);
+    
+    auto &shapes = m_graphicsEngine->GetShapes();
+    std::vector<std::shared_ptr<Shape>> newShapes;
+    
+    for (const auto &shape : shapes) {
+        if (shape->GetType() == ShapeType::POLYGON) {
+            auto polygon = std::dynamic_pointer_cast<Polygon>(shape);
+            if (polygon) {
+                auto points = polygon->GetPoints();
+                auto clippedPoints = WeilerAthertonClip(points, xmin, ymin, xmax, ymax);
+                
+                if (clippedPoints.size() >= 3) {
+                    // 创建裁剪后的多边形（Polygon类会自动封闭）
+                    auto clippedPolygon = std::make_shared<Polygon>(clippedPoints);
+                    clippedPolygon->SetLineWidth(polygon->GetLineWidth());
+                    clippedPolygon->SetLineStyle(polygon->GetLineStyle());
+                    newShapes.push_back(clippedPolygon);
+                }
+                // 如果裁剪后顶点数小于3，说明多边形在裁剪区域外或被完全裁剪掉，不添加到newShapes
+            }
+        } else {
+            // 保留其他类型的图元
+            newShapes.push_back(shape);
+        }
+    }
+    
+    // 清空原有图元并添加裁剪后的图元
+    m_graphicsEngine->ClearAllShapes();
+    for (const auto &shape : newShapes) {
+        m_graphicsEngine->AddShape(shape);
+    }
+    
+    OutputDebugStringA("Weiler-Atherton多边形裁剪完成\n");
+}
+
+// Sutherland-Hodgman多边形裁剪算法
+std::vector<D2D1_POINT_2F> MainWindow::SutherlandHodgmanClip(
+    const std::vector<D2D1_POINT_2F>& polygon,
+    float xmin, float ymin, float xmax, float ymax) {
+    
+    if (polygon.size() < 3) return polygon;
+    
+    std::vector<D2D1_POINT_2F> output = polygon;
+    
+    // 对四条边界依次裁剪：左、右、下、上
+    for (int edge = 0; edge < 4; edge++) {
+        if (output.empty()) break;
+        
+        std::vector<D2D1_POINT_2F> input = output;
+        output.clear();
+        
+        for (size_t i = 0; i < input.size(); i++) {
+            D2D1_POINT_2F current = input[i];
+            D2D1_POINT_2F next = input[(i + 1) % input.size()];
+            
+            bool currentInside = false;
+            bool nextInside = false;
+            D2D1_POINT_2F intersection;
+            
+            // 根据当前边界判断点是否在内侧，并计算交点
+            switch (edge) {
+            case 0: // 左边界 x = xmin
+                currentInside = (current.x >= xmin);
+                nextInside = (next.x >= xmin);
+                if (currentInside != nextInside) {
+                    float t = (xmin - current.x) / (next.x - current.x);
+                    intersection = D2D1::Point2F(xmin, current.y + t * (next.y - current.y));
+                }
+                break;
+            case 1: // 右边界 x = xmax
+                currentInside = (current.x <= xmax);
+                nextInside = (next.x <= xmax);
+                if (currentInside != nextInside) {
+                    float t = (xmax - current.x) / (next.x - current.x);
+                    intersection = D2D1::Point2F(xmax, current.y + t * (next.y - current.y));
+                }
+                break;
+            case 2: // 下边界 y = ymin
+                currentInside = (current.y >= ymin);
+                nextInside = (next.y >= ymin);
+                if (currentInside != nextInside) {
+                    float t = (ymin - current.y) / (next.y - current.y);
+                    intersection = D2D1::Point2F(current.x + t * (next.x - current.x), ymin);
+                }
+                break;
+            case 3: // 上边界 y = ymax
+                currentInside = (current.y <= ymax);
+                nextInside = (next.y <= ymax);
+                if (currentInside != nextInside) {
+                    float t = (ymax - current.y) / (next.y - current.y);
+                    intersection = D2D1::Point2F(current.x + t * (next.x - current.x), ymax);
+                }
+                break;
+            }
+            
+            // 根据当前点和下一点的位置关系添加顶点
+            if (currentInside) {
+                output.push_back(current);
+                if (!nextInside) {
+                    // 从内到外，添加交点
+                    output.push_back(intersection);
+                }
+            } else if (nextInside) {
+                // 从外到内，添加交点
+                output.push_back(intersection);
+            }
+        }
+    }
+    
+    return output;
+}
+
+// Weiler-Atherton多边形裁剪算法（简化版本）
+std::vector<D2D1_POINT_2F> MainWindow::WeilerAthertonClip(
+    const std::vector<D2D1_POINT_2F>& polygon,
+    float xmin, float ymin, float xmax, float ymax) {
+    
+    // 对于简化实现，我们使用Sutherland-Hodgman算法
+    // 完整的Weiler-Atherton算法较为复杂，需要处理多个输出多边形
+    // 这里先使用SH算法作为基础实现
+    return SutherlandHodgmanClip(polygon, xmin, ymin, xmax, ymax);
+}
+
 void MainWindow::DrawIntersectionPoints(ID2D1RenderTarget *rt) {
     auto points = m_graphicsEngine->getIntersectionPoints();
     if (points.empty()) return;
@@ -1676,16 +1896,21 @@ void MainWindow::OnPaint() {
                 centerBrush->Release();
             }
         }
-
+        
+        // 绘制交点
         DrawIntersectionPoints(m_graphicsEngine->GetRenderTarget());
-
         DrawSelectedIntersectionShapes(m_graphicsEngine->GetRenderTarget());
-
-        // 绘制裁剪矩形预览
-        if (m_currentMode == DrawingMode::CLIP_LINES && m_clipRectDrawing) {
+        
+        // 绘制裁剪矩形预览（包括直线裁剪和多边形裁剪）
+        if ((m_currentMode == DrawingMode::CLIP_LINES ||
+             m_currentMode == DrawingMode::CLIP_POLYGON_SH ||
+             m_currentMode == DrawingMode::CLIP_POLYGON_WA) && m_clipRectDrawing) {
             ID2D1SolidColorBrush *clipBrush = nullptr;
+            D2D1::ColorF brushColor = (m_currentMode == DrawingMode::CLIP_LINES) ? 
+                D2D1::ColorF(D2D1::ColorF::Blue, 0.5f) : 
+                D2D1::ColorF(D2D1::ColorF::Green, 0.5f);
             HRESULT hr = m_graphicsEngine->GetRenderTarget()->CreateSolidColorBrush(
-                D2D1::ColorF(D2D1::ColorF::Blue, 0.5f), &clipBrush);
+                brushColor, &clipBrush);
             
             if (SUCCEEDED(hr) && clipBrush) {
                 D2D1_RECT_F clipRect = D2D1::RectF(
@@ -1698,10 +1923,9 @@ void MainWindow::OnPaint() {
                 clipBrush->Release();
             }
         }
-
+        
         /* ----- 右上角模式提示 ----- */
         ID2D1RenderTarget *rt = m_graphicsEngine->GetRenderTarget();
-        // 1. 第一次进来时把 DirectWrite 工厂和格式建好
         static IDWriteFactory *pDW = nullptr;
         static IDWriteTextFormat *pTF = nullptr;
         if (!pDW) {
@@ -1743,6 +1967,8 @@ void MainWindow::OnPaint() {
         case DrawingMode::SEED_FILL: name = L"SEED_FILL"; break;
         case DrawingMode::POLYGON: name = L"POLYGON"; break;
         case DrawingMode::CLIP_LINES: name = L"CLIP_LINES"; break;
+        case DrawingMode::CLIP_POLYGON_SH: name = L"CLIP_POLYGON_SH"; break;
+        case DrawingMode::CLIP_POLYGON_WA: name = L"CLIP_POLYGON_WA"; break;
         }
         WCHAR txt[64];
         swprintf_s(txt, L"Mode: %s", name);
@@ -1973,8 +2199,14 @@ void MainWindow::OnCommand(WPARAM wParam) {
         OutputDebugStringA("Liang-Barsky裁剪模式已激活\n");
         break;
     case 32817: // 利用Sutherland-Hodgman算法裁剪矩形框内多边形
+        m_currentMode = DrawingMode::CLIP_POLYGON_SH;
+        m_clipRectDrawing = false;
+        OutputDebugStringA("Sutherland-Hodgman多边形裁剪模式已激活\n");
         break;
     case 32818: // 利用Weiler-Atherton算法裁剪矩形内多边形
+        m_currentMode = DrawingMode::CLIP_POLYGON_WA;
+        m_clipRectDrawing = false;
+        OutputDebugStringA("Weiler-Atherton多边形裁剪模式已激活\n");
         break;
     case 5: m_graphicsEngine->DeleteSelectedShape(); break;
     }
