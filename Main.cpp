@@ -51,6 +51,8 @@ private:
     bool m_isTransforming = false;
     D2D1_POINT_2F m_transformStartPoint;
     D2D1_POINT_2F m_transformReferencePoint; // 用于旋转和缩放的参考点
+    bool m_waitingForRotationCenter = false; // 等待用户指定旋转中心
+    D2D1_POINT_2F m_rotationCenter; // 定点旋转的中心点
 
     // 贝塞尔曲线控制点
     D2D1_POINT_2F m_bezierControl1, m_bezierControl2;
@@ -192,18 +194,38 @@ void MainWindow::OnLButtonDown(int x, int y) {
 
     switch (m_currentMode) {
     case DrawingMode::SELECT:
-        // 首先尝试选择图形
-        if (m_graphicsEngine->SelectShape(currentPoint)) {
-            SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
-            // 如果有图形被选中，根据当前变换模式开始变换
-            if (m_transformMode != TransformMode::NONE) {
-                StartTransform(m_transformMode, currentPoint);
+        // 定点旋转模式的特殊处理
+        if (m_transformMode == TransformMode::ROTATE_AROUND_POINT) {
+            if (!m_waitingForRotationCenter) {
+                // 第一步：选择图元
+                if (m_graphicsEngine->SelectShape(currentPoint)) {
+                    m_waitingForRotationCenter = true;
+                    SetCursor(LoadCursor(nullptr, IDC_CROSS));
+                } else {
+                    m_graphicsEngine->ClearSelection();
+                    m_waitingForRotationCenter = false;
+                    SetCursor(LoadCursor(nullptr, IDC_ARROW));
+                }
+            } else {
+                // 第二步：指定旋转中心并开始旋转
+                m_rotationCenter = currentPoint;
+                StartTransform(TransformMode::ROTATE_AROUND_POINT, currentPoint);
+                m_waitingForRotationCenter = false;
             }
         } else {
-            m_graphicsEngine->ClearSelection();
-            CancelTransform();
-            SetCursor(LoadCursor(nullptr, IDC_ARROW));
-            m_graphicsEngine->clearIntersection();
+            // 其他变换模式的原有逻辑
+            if (m_graphicsEngine->SelectShape(currentPoint)) {
+                SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
+                // 如果有图形被选中，根据当前变换模式开始变换
+                if (m_transformMode != TransformMode::NONE) {
+                    StartTransform(m_transformMode, currentPoint);
+                }
+            } else {
+                m_graphicsEngine->ClearSelection();
+                CancelTransform();
+                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+                m_graphicsEngine->clearIntersection();
+            }
         }
         break;
 
@@ -1064,6 +1086,27 @@ void MainWindow::UpdateTransform(D2D1_POINT_2F point) {
         }
         break;
 
+    case TransformMode::ROTATE_AROUND_POINT:
+        // 定点旋转：基于用户指定的旋转中心计算角度
+        {
+            // 计算从旋转中心到起始点的向量
+            float startVecX = m_transformStartPoint.x - m_rotationCenter.x;
+            float startVecY = m_transformStartPoint.y - m_rotationCenter.y;
+
+            // 计算从旋转中心到当前点的向量
+            float currentVecX = point.x - m_rotationCenter.x;
+            float currentVecY = point.y - m_rotationCenter.y;
+
+            // 计算角度（弧度）
+            float startAngle = atan2f(startVecY, startVecX);
+            float currentAngle = atan2f(currentVecY, currentVecX);
+            float angle = currentAngle - startAngle;
+
+            // 调用GraphicsEngine的RotateAroundPoint方法
+            m_graphicsEngine->RotateAroundPoint(angle, m_rotationCenter);
+        }
+        break;
+
     case TransformMode::SCALE:
         // 缩放：基于参考点计算缩放比例
         {
@@ -1717,6 +1760,9 @@ void MainWindow::OnCommand(WPARAM wParam) {
         OutputDebugStringA("种子填充模式已激活\n");
         break;
     case 32813: // 选中图元后，再用鼠标指定旋转点，让图元绕该点旋转
+        m_transformMode = TransformMode::ROTATE_AROUND_POINT;
+        m_currentMode = DrawingMode::SELECT;
+        m_waitingForRotationCenter = false; // 重置状态
         break;
     case 32814: // 绘制任意多边形
         m_currentMode = DrawingMode::POLYGON;

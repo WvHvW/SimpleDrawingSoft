@@ -22,6 +22,7 @@ public:
     virtual void Move(float dx, float dy) = 0;
     virtual void Rotate(float angle) = 0;
     virtual void Scale(float scale) = 0;
+    virtual void RotateAroundPoint(float angle, D2D1_POINT_2F center) = 0;  // 绕指定点旋转
     virtual D2D1_POINT_2F GetCenter() const = 0;
     virtual D2D1_RECT_F GetBounds() const = 0;
 
@@ -145,6 +146,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -192,6 +194,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -244,6 +247,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -296,6 +300,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override { /* 圆形旋转无意义 */ }
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -369,6 +374,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override { /* 圆形旋转无意义 */ }
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -443,6 +449,7 @@ public:
     void Rotate(float angle) override { /* 圆形旋转无意义 */
     }
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
     D2D1_POINT_2F GetCenter() const override {
@@ -512,6 +519,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     D2D1_POINT_2F GetCenter() const override {
         float centerX = (m_points[0].x + m_points[1].x + m_points[2].x + m_points[3].x) / 4;
@@ -567,6 +575,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -626,6 +635,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     D2D1_POINT_2F GetCenter() const override {
         return m_center;
@@ -658,6 +668,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -713,6 +724,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     std::string Serialize() override;
 
@@ -780,8 +792,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
-
-    std::string Serialize() override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     void AddPoint(D2D1_POINT_2F point);
     const std::vector<D2D1_POINT_2F> &GetPoints() const {
@@ -790,6 +801,8 @@ public:
     void SetPoints(const std::vector<D2D1_POINT_2F> &points) {
         m_points = points;
     }
+
+    std::string Serialize() override;
 
     D2D1_POINT_2F GetCenter() const override {
         if (m_points.empty()) {
@@ -858,6 +871,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
     
     std::string Serialize() override;
     
@@ -907,8 +921,7 @@ public:
     void Move(float dx, float dy) override;
     void Rotate(float angle) override;
     void Scale(float scale) override;
-
-    std::string Serialize() override;
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center) override;
 
     void AddPoint(D2D1_POINT_2F point);
     const std::vector<D2D1_POINT_2F> &GetPoints() const {
@@ -917,6 +930,8 @@ public:
     void SetPoints(const std::vector<D2D1_POINT_2F> &points) {
         m_points = points;
     }
+
+    std::string Serialize() override;
 
     D2D1_POINT_2F GetCenter() const override {
         if (m_points.empty()) {

@@ -42,7 +42,8 @@ enum class TransformMode {
     NONE,
     MOVE,
     ROTATE,
-    SCALE
+    SCALE,
+    ROTATE_AROUND_POINT  // 定点旋转
 };
 
 // 线宽枚举

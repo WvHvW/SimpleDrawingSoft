@@ -266,6 +266,23 @@ void Line::Scale(float scale) {
     m_end.y = center.y + (m_end.y - center.y) * scale;
 }
 
+void Line::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    // 旋转起点
+    float dx = m_start.x - center.x;
+    float dy = m_start.y - center.y;
+    m_start.x = center.x + dx * c - dy * s;
+    m_start.y = center.y + dx * s + dy * c;
+    
+    // 旋转终点
+    dx = m_end.x - center.x;
+    dy = m_end.y - center.y;
+    m_end.x = center.x + dx * c - dy * s;
+    m_end.y = center.y + dx * s + dy * c;
+}
+
 std::string Line::Serialize() {
     std::ostringstream oss;
     oss << "Line " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
@@ -432,6 +449,25 @@ void MidpointLine::Scale(float scale) {
     CalculateMidpointPixels(); // 重新计算像素点
 }
 
+void MidpointLine::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    // 旋转起点
+    float dx = m_start.x - center.x;
+    float dy = m_start.y - center.y;
+    m_start.x = center.x + dx * c - dy * s;
+    m_start.y = center.y + dx * s + dy * c;
+    
+    // 旋转终点
+    dx = m_end.x - center.x;
+    dy = m_end.y - center.y;
+    m_end.x = center.x + dx * c - dy * s;
+    m_end.y = center.y + dx * s + dy * c;
+    
+    CalculateMidpointPixels(); // 重新计算像素点
+}
+
 std::string MidpointLine::Serialize() {
     std::ostringstream oss;
     oss << "MidpointLine " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
@@ -585,6 +621,25 @@ void BresenhamLine::Scale(float scale) {
     CalculateBresenhamPixels(); // 重新计算像素点
 }
 
+void BresenhamLine::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    // 旋转起点
+    float dx = m_start.x - center.x;
+    float dy = m_start.y - center.y;
+    m_start.x = center.x + dx * c - dy * s;
+    m_start.y = center.y + dx * s + dy * c;
+    
+    // 旋转终点
+    dx = m_end.x - center.x;
+    dy = m_end.y - center.y;
+    m_end.x = center.x + dx * c - dy * s;
+    m_end.y = center.y + dx * s + dy * c;
+    
+    CalculateBresenhamPixels(); // 重新计算像素点
+}
+
 std::string BresenhamLine::Serialize() {
     std::ostringstream oss;
     oss << "BresenhamLine " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
@@ -724,6 +779,18 @@ void MidpointCircle::Scale(float scale) {
     m_radius *= scale;
     CalculateMidpointPixels(); // 重新计算像素点
     TransformFillPixelsScale(scale, m_center);  // 缩放填充像素
+}
+
+void MidpointCircle::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    // 圆绕指定点旋转，只需要移动圆心
+    float s = sinf(angle);
+    float c = cosf(angle);
+    float dx = m_center.x - center.x;
+    float dy = m_center.y - center.y;
+    m_center.x = center.x + dx * c - dy * s;
+    m_center.y = center.y + dx * s + dy * c;
+    CalculateMidpointPixels(); // 重新计算像素点
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
 }
 
 std::string MidpointCircle::Serialize() {
@@ -867,6 +934,18 @@ void BresenhamCircle::Scale(float scale) {
     TransformFillPixelsScale(scale, m_center);  // 缩放填充像素
 }
 
+void BresenhamCircle::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    // 圆绕指定点旋转，只需要移动圆心
+    float s = sinf(angle);
+    float c = cosf(angle);
+    float dx = m_center.x - center.x;
+    float dy = m_center.y - center.y;
+    m_center.x = center.x + dx * c - dy * s;
+    m_center.y = center.y + dx * s + dy * c;
+    CalculateBresenhamPixels(); // 重新计算像素点
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
+}
+
 std::string BresenhamCircle::Serialize() {
     std::ostringstream oss;
     oss << "BresenhamCircle " << m_center.x << " " << m_center.y << " " << m_radius;
@@ -914,6 +993,17 @@ void Circle::Move(float dx, float dy) {
 void Circle::Scale(float scale) {
     m_radius *= scale;
     TransformFillPixelsScale(scale, m_center);  // 缩放填充像素
+}
+
+void Circle::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    // 圆绕指定点旋转，只需要移动圆心
+    float s = sinf(angle);
+    float c = cosf(angle);
+    float dx = m_center.x - center.x;
+    float dy = m_center.y - center.y;
+    m_center.x = center.x + dx * c - dy * s;
+    m_center.y = center.y + dx * s + dy * c;
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
 }
 
 std::string Circle::Serialize() {
@@ -1013,6 +1103,19 @@ void Rect::Scale(float scale) {
         m_points[i].y = center.y + (m_points[i].y - center.y) * scale;
     }
     TransformFillPixelsScale(scale, center);  // 缩放填充像素
+}
+
+void Rect::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    for (int i = 0; i < 4; i++) {
+        float dx = m_points[i].x - center.x;
+        float dy = m_points[i].y - center.y;
+        m_points[i].x = center.x + dx * c - dy * s;
+        m_points[i].y = center.y + dx * s + dy * c;
+    }
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
 }
 
 std::string Rect::Serialize() {
@@ -1120,6 +1223,19 @@ void Triangle::Scale(float scale) {
     TransformFillPixelsScale(scale, center);  // 缩放填充像素
 }
 
+void Triangle::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    for (int i = 0; i < 3; i++) {
+        float dx = m_points[i].x - center.x;
+        float dy = m_points[i].y - center.y;
+        m_points[i].x = center.x + dx * c - dy * s;
+        m_points[i].y = center.y + dx * s + dy * c;
+    }
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
+}
+
 std::string Triangle::Serialize() {
     std::ostringstream oss;
     oss << "Triangle "
@@ -1210,6 +1326,19 @@ void Diamond::Scale(float scale) {
     m_radiusX *= scale;
     m_radiusY *= scale;
     TransformFillPixelsScale(scale, m_center);  // 缩放填充像素
+}
+
+void Diamond::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    // 移动菱形中心
+    float s = sinf(angle);
+    float c = cosf(angle);
+    float dx = m_center.x - center.x;
+    float dy = m_center.y - center.y;
+    m_center.x = center.x + dx * c - dy * s;
+    m_center.y = center.y + dx * s + dy * c;
+    // 更新菱形的旋转角度
+    m_angle += angle;
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
 }
 
 // 包围盒
@@ -1352,6 +1481,19 @@ void Parallelogram::Scale(float scale) {
         m_points[i].y = center.y + (m_points[i].y - center.y) * scale;
     }
     TransformFillPixelsScale(scale, center);  // 缩放填充像素
+}
+
+void Parallelogram::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    for (int i = 0; i < 4; i++) {
+        float dx = m_points[i].x - center.x;
+        float dy = m_points[i].y - center.y;
+        m_points[i].x = center.x + dx * c - dy * s;
+        m_points[i].y = center.y + dx * s + dy * c;
+    }
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
 }
 
 std::string Parallelogram::Serialize() {
@@ -1548,6 +1690,18 @@ void Curve::Scale(float scale) {
     }
 }
 
+void Curve::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    for (auto &point : m_points) {
+        float dx = point.x - center.x;
+        float dy = point.y - center.y;
+        point.x = center.x + dx * c - dy * s;
+        point.y = center.y + dx * s + dy * c;
+    }
+}
+
 std::string Curve::Serialize() {
     std::ostringstream oss;
     oss << "Curve ";
@@ -1700,6 +1854,19 @@ void Poly::Scale(float scale) {
         point.y = center.y + (point.y - center.y) * scale;
     }
     TransformFillPixelsScale(scale, center);  // 缩放填充像素
+}
+
+void Poly::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    for (auto &point : m_points) {
+        float dx = point.x - center.x;
+        float dy = point.y - center.y;
+        point.x = center.x + dx * c - dy * s;
+        point.y = center.y + dx * s + dy * c;
+    }
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
 }
 
 void Poly::AddPoint(D2D1_POINT_2F point) {
@@ -1889,6 +2056,18 @@ void MultiBezier::Scale(float scale) {
     }
 }
 
+void MultiBezier::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    for (auto& point : m_controlPoints) {
+        float dx = point.x - center.x;
+        float dy = point.y - center.y;
+        point.x = center.x + dx * c - dy * s;
+        point.y = center.y + dx * s + dy * c;
+    }
+}
+
 D2D1_POINT_2F MultiBezier::GetCenter() const {
     if (m_controlPoints.empty()) {
         return D2D1::Point2F(0, 0);
@@ -2072,6 +2251,19 @@ void Polygon::Scale(float scale) {
         point.y = center.y + (point.y - center.y) * scale;
     }
     TransformFillPixelsScale(scale, center);
+}
+
+void Polygon::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    float s = sinf(angle);
+    float c = cosf(angle);
+    
+    for (auto &point : m_points) {
+        float dx = point.x - center.x;
+        float dy = point.y - center.y;
+        point.x = center.x + dx * c - dy * s;
+        point.y = center.y + dx * s + dy * c;
+    }
+    TransformFillPixelsRotate(angle, center);  // 旋转填充像素
 }
 
 void Polygon::AddPoint(D2D1_POINT_2F point) {

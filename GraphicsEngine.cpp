@@ -276,6 +276,12 @@ void GraphicsEngine::ScaleSelectedShape(float scale) {
     }
 }
 
+void GraphicsEngine::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
+    if (m_selectedShape) {
+        m_selectedShape->RotateAroundPoint(angle, center);
+    }
+}
+
 std::shared_ptr<Line> GraphicsEngine::CreatePerpendicularLine(std::shared_ptr<Line> line, D2D1_POINT_2F point) {
     if (!line) return nullptr;
 

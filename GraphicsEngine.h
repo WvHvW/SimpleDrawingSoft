@@ -48,6 +48,7 @@ public:
     void MoveSelectedShape(float dx, float dy);
     void RotateSelectedShape(float angle);
     void ScaleSelectedShape(float scale);
+    void RotateAroundPoint(float angle, D2D1_POINT_2F center);
 
     // ªÊ÷∆¥πœﬂ
     std::shared_ptr<Line> CreatePerpendicularLine(std::shared_ptr<Line> line, D2D1_POINT_2F point);
