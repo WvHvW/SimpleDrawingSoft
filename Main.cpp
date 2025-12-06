@@ -1368,6 +1368,7 @@ void MainWindow::ApplyPolygonClippingSH() {
     OutputDebugStringA(debugMsg);
     
     auto &shapes = m_graphicsEngine->GetShapes();
+    auto selectedShape = m_graphicsEngine->GetSelectedShape();
     std::vector<std::shared_ptr<Shape>> newShapes;
     
     int polygonCount = 0;
@@ -1394,8 +1395,16 @@ void MainWindow::ApplyPolygonClippingSH() {
                     clippedPolygon->SetLineStyle(polygon->GetLineStyle());
                     newShapes.push_back(clippedPolygon);
                     clippedCount++;
+                    OutputDebugStringA("  -> 裁剪后保留（有效多边形）\n");
+                } else if (clippedPoints.empty()) {
+                    // 多边形完全在裁剪窗口外，保留原多边形
+                    newShapes.push_back(shape);
+                    OutputDebugStringA("  -> 保留原多边形（完全在窗口外）\n");
+                } else {
+                    sprintf_s(debugMsg, "  -> 丢弃（裁剪后顶点数=%zu，无效）\n", clippedPoints.size());
+                    OutputDebugStringA(debugMsg);
                 }
-                // 如果裁剪后顶点数小于3，说明多边形在裁剪区域外或被完全裁剪掉，不添加到newShapes
+                // 如果裁剪后顶点数在1-2之间，说明多边形与裁剪窗口相交但被裁剪成无效图形，不保留
             }
         } else {
             // 保留其他类型的图元
@@ -1437,8 +1446,11 @@ void MainWindow::ApplyPolygonClippingWA() {
                     clippedPolygon->SetLineWidth(polygon->GetLineWidth());
                     clippedPolygon->SetLineStyle(polygon->GetLineStyle());
                     newShapes.push_back(clippedPolygon);
+                } else if (clippedPoints.empty()) {
+                    // 多边形完全在裁剪窗口外，保留原多边形
+                    newShapes.push_back(shape);
                 }
-                // 如果裁剪后顶点数小于3，说明多边形在裁剪区域外或被完全裁剪掉，不添加到newShapes
+                // 如果裁剪后顶点数在1-2之间，说明多边形与裁剪窗口相交但被裁剪成无效图形，不保留
             }
         } else {
             // 保留其他类型的图元
@@ -2251,15 +2263,24 @@ void MainWindow::SaveToFile() {
     if (GetSaveFileName(&ofn)) {
         std::wofstream out(szFile);
         if (out) {
-            for (const auto &shape : m_graphicsEngine->GetShapes())
-                out << StringToWString(shape->Serialize()) << L'\n';
+            for (const auto &shape : m_graphicsEngine->GetShapes()) {
+                std::string serialized = shape->Serialize();
+                out << StringToWString(serialized) << L'\n';
+                
+                // 调试输出
+                char debugMsg[200];
+                sprintf_s(debugMsg, "保存图形: %s (填充像素数: %zu)\n", 
+                         serialized.substr(0, 50).c_str(), shape->GetFillPixels().size());
+                OutputDebugStringA(debugMsg);
+            }
+            OutputDebugStringA("文件保存完成\n");
         }
     }
 }
 
 void MainWindow::LoadFromFile() {
     WCHAR szFile[MAX_PATH] = L"";
-
+// ...
     OPENFILENAME ofn{};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = m_hwnd;
@@ -2277,10 +2298,21 @@ void MainWindow::LoadFromFile() {
 
         // 2. 加载新数据
         std::wstring line;
+        int lineNum = 0;
         while (std::getline(inFile, line)) {
-            if (auto shape = Shape::Deserialize(WStringToString(line)))
+            lineNum++;
+            std::string lineStr = WStringToString(line);
+            if (auto shape = Shape::Deserialize(lineStr)) {
                 m_graphicsEngine->AddShape(shape);
+                
+                // 调试输出
+                char debugMsg[200];
+                sprintf_s(debugMsg, "加载图形 #%d: %s (填充像素数: %zu)\n", 
+                         lineNum, lineStr.substr(0, 50).c_str(), shape->GetFillPixels().size());
+                OutputDebugStringA(debugMsg);
+            }
         }
+        OutputDebugStringA("文件加载完成\n");
 
         // 3. 重置交互状态
         m_graphicsEngine->ClearSelection();

@@ -80,6 +80,10 @@ public:
     const std::vector<D2D1_POINT_2F>& GetFillPixels() const { return m_fillPixels; }
     void ClearFillPixels() { m_fillPixels.clear(); }
     bool IsFilled() const { return !m_fillPixels.empty(); }
+    
+    // 序列化填充像素的辅助方法
+    std::string SerializeFillPixels() const;
+    void DeserializeFillPixels(std::istringstream& iss);
 
 protected:
     ShapeType m_type;

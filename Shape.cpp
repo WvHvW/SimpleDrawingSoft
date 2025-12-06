@@ -63,60 +63,103 @@ namespace {
     }
 }
 
+// 序列化填充像素数据
+std::string Shape::SerializeFillPixels() const {
+    if (m_fillPixels.empty()) {
+        return ""; // 没有填充数据时不输出任何内容
+    }
+    
+    std::ostringstream oss;
+    oss << " FILL:" << m_fillPixels.size();
+    for (const auto& pixel : m_fillPixels) {
+        oss << " " << pixel.x << " " << pixel.y;
+    }
+    return oss.str();
+}
+
+// 反序列化填充像素数据
+void Shape::DeserializeFillPixels(std::istringstream& iss) {
+    // 保存当前位置，以便在没有FILL标记时回退
+    std::streampos pos = iss.tellg();
+    std::string fillMarker;
+    
+    // 尝试读取FILL标记
+    if (iss >> fillMarker) {
+        if (fillMarker == "FILL:") {
+            size_t fillCount;
+            iss >> fillCount;
+            m_fillPixels.clear();
+            m_fillPixels.reserve(fillCount);
+            for (size_t i = 0; i < fillCount; ++i) {
+                D2D1_POINT_2F pixel;
+                iss >> pixel.x >> pixel.y;
+                m_fillPixels.push_back(pixel);
+            }
+        } else {
+            // 不是FILL标记，回退到之前的位置
+            iss.seekg(pos);
+        }
+    }
+}
+
 std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
     std::istringstream iss(data);
     std::string type;
     iss >> type;
 
+    std::shared_ptr<Shape> shape;
+
     if (type == "Line") {
         D2D1_POINT_2F start, end;
         iss >> start.x >> start.y >> end.x >> end.y;
-        return std::make_shared<Line>(start, end);
+        shape = std::make_shared<Line>(start, end);
     } else if (type == "MidpointLine") {
         D2D1_POINT_2F start, end;
         iss >> start.x >> start.y >> end.x >> end.y;
-        return std::make_shared<MidpointLine>(start, end);
+        shape = std::make_shared<MidpointLine>(start, end);
     } else if (type == "BresenhamLine") {
         D2D1_POINT_2F start, end;
         iss >> start.x >> start.y >> end.x >> end.y;
-        return std::make_shared<BresenhamLine>(start, end);
+        shape = std::make_shared<BresenhamLine>(start, end);
     } else if (type == "MidpointCircle") {
         D2D1_POINT_2F center;
         float radius;
         iss >> center.x >> center.y >> radius;
-        return std::make_shared<MidpointCircle>(center, radius);
+        shape = std::make_shared<MidpointCircle>(center, radius);
     } else if (type == "BresenhamCircle") {
         D2D1_POINT_2F center;
         float radius;
         iss >> center.x >> center.y >> radius;
-        return std::make_shared<BresenhamCircle>(center, radius);
+        shape = std::make_shared<BresenhamCircle>(center, radius);
     } else if (type == "Circle") {
         D2D1_POINT_2F center;
         float radius;
         iss >> center.x >> center.y >> radius;
-        return std::make_shared<Circle>(center, radius);
-    } else if (type == "Rect") {
-        D2D1_POINT_2F start, end;
-        iss >> start.x >> start.y >> end.x >> end.y;
-        return std::make_shared<Rect>(start, end);
+        shape = std::make_shared<Circle>(center, radius);
+    } else if (type == "Rectangle") {
+        // Rectangle序列化时保存了4个顶点，但构造函数只需要对角两点
+        D2D1_POINT_2F p1, p2, p3, p4;
+        iss >> p1.x >> p1.y >> p2.x >> p2.y >> p3.x >> p3.y >> p4.x >> p4.y;
+        // 使用左上角和右下角重建矩形
+        shape = std::make_shared<Rect>(p1, p3);
     } else if (type == "Triangle") {
         D2D1_POINT_2F p1, p2, p3;
         iss >> p1.x >> p1.y >> p2.x >> p2.y >> p3.x >> p3.y;
-        return std::make_shared<Triangle>(p1, p2, p3);
+        shape = std::make_shared<Triangle>(p1, p2, p3);
     } else if (type == "Diamond") {
         D2D1_POINT_2F center;
         float radiusX, radiusY, angle;
         iss >> center.x >> center.y >> radiusX >> radiusY >> angle;
-        return std::make_shared<Diamond>(center, radiusX, radiusY, angle);
+        shape = std::make_shared<Diamond>(center, radiusX, radiusY, angle);
     } else if (type == "Parallelogram") {
         D2D1_POINT_2F p1, p2, p3;
         iss >> p1.x >> p1.y >> p2.x >> p2.y >> p3.x >> p3.y;
-        return std::make_shared<Parallelogram>(p1, p2, p3);
+        shape = std::make_shared<Parallelogram>(p1, p2, p3);
     } else if (type == "Curve") {
         D2D1_POINT_2F start, control1, control2, end;
         iss >> start.x >> start.y >> control1.x >> control1.y
             >> control2.x >> control2.y >> end.x >> end.y;
-        return std::make_shared<Curve>(start, control1, control2, end);
+        shape = std::make_shared<Curve>(start, control1, control2, end);
     } else if (type == "Polyline") {
         std::vector<D2D1_POINT_2F> points;
         size_t pointCount;
@@ -126,7 +169,7 @@ std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
             iss >> point.x >> point.y;
             points.push_back(point);
         }
-        return std::make_shared<Poly>(points);
+        shape = std::make_shared<Poly>(points);
     } else if (type == "MultiBezier") {
         std::vector<D2D1_POINT_2F> points;
         size_t pointCount;
@@ -140,7 +183,7 @@ std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
         for (const auto& point : points) {
             multiBezier->AddControlPoint(point);
         }
-        return multiBezier;
+        shape = multiBezier;
     } else if (type == "Polygon") {
         std::vector<D2D1_POINT_2F> points;
         size_t pointCount;
@@ -150,10 +193,15 @@ std::shared_ptr<Shape> Shape::Deserialize(const std::string &data) {
             iss >> point.x >> point.y;
             points.push_back(point);
         }
-        return std::make_shared<Polygon>(points);
+        shape = std::make_shared<Polygon>(points);
     }
 
-    return nullptr; // 未知类型
+    // 如果成功创建了图形，尝试读取填充数据
+    if (shape) {
+        shape->DeserializeFillPixels(iss);
+    }
+
+    return shape;
 }
 
 // 点到线段距离平方，若 < distThresh 则命中
@@ -286,6 +334,7 @@ void Line::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
 std::string Line::Serialize() {
     std::ostringstream oss;
     oss << "Line " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -471,6 +520,7 @@ void MidpointLine::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
 std::string MidpointLine::Serialize() {
     std::ostringstream oss;
     oss << "MidpointLine " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -643,6 +693,7 @@ void BresenhamLine::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
 std::string BresenhamLine::Serialize() {
     std::ostringstream oss;
     oss << "BresenhamLine " << m_start.x << " " << m_start.y << " " << m_end.x << " " << m_end.y;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -796,6 +847,7 @@ void MidpointCircle::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
 std::string MidpointCircle::Serialize() {
     std::ostringstream oss;
     oss << "MidpointCircle " << m_center.x << " " << m_center.y << " " << m_radius;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -949,6 +1001,7 @@ void BresenhamCircle::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
 std::string BresenhamCircle::Serialize() {
     std::ostringstream oss;
     oss << "BresenhamCircle " << m_center.x << " " << m_center.y << " " << m_radius;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -1009,6 +1062,7 @@ void Circle::RotateAroundPoint(float angle, D2D1_POINT_2F center) {
 std::string Circle::Serialize() {
     std::ostringstream oss;
     oss << "Circle " << m_center.x << " " << m_center.y << " " << m_radius;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -1124,6 +1178,7 @@ std::string Rect::Serialize() {
     for (int i = 0; i < 4; i++) {
         oss << m_points[i].x << " " << m_points[i].y << " ";
     }
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -1242,6 +1297,7 @@ std::string Triangle::Serialize() {
         << m_points[0].x << " " << m_points[0].y << " "
         << m_points[1].x << " " << m_points[1].y << " "
         << m_points[2].x << " " << m_points[2].y;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -1371,6 +1427,7 @@ std::string Diamond::Serialize() {
     std::ostringstream oss;
     oss << "Diamond " << m_center.x << " " << m_center.y << " "
         << m_radiusX << " " << m_radiusY << " " << m_angle;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -1502,6 +1559,7 @@ std::string Parallelogram::Serialize() {
         << m_points[0].x << " " << m_points[0].y << " "
         << m_points[1].x << " " << m_points[1].y << " "
         << m_points[2].x << " " << m_points[2].y;
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -1708,6 +1766,7 @@ std::string Curve::Serialize() {
     for (const auto &point : m_points) {
         oss << point.x << " " << point.y << " ";
     }
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -1879,6 +1938,7 @@ std::string Poly::Serialize() {
     for (const auto &point : m_points) {
         oss << " " << point.x << " " << point.y;
     }
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -2127,6 +2187,7 @@ std::string MultiBezier::Serialize() {
     for (const auto& point : m_controlPoints) {
         oss << " " << point.x << " " << point.y;
     }
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
@@ -2276,6 +2337,7 @@ std::string Polygon::Serialize() {
     for (const auto &point : m_points) {
         oss << " " << point.x << " " << point.y;
     }
+    oss << SerializeFillPixels();
     return oss.str();
 }
 
